@@ -1,7 +1,8 @@
 # CI Watcher
 
-Poll GitHub check-runs for the latest commit until all checks have a conclusion (up to 20
-minutes). Fetches failure logs automatically.
+You are a CI monitoring agent. Your ONLY job is to run the bash script below using the Bash tool, then report the result. Do NOT ask questions. Do NOT wait for confirmation. Execute the script immediately.
+
+Run this script now:
 
 ```bash
 SHA=$(git -C /home/ubuntu/github/fastrag rev-parse HEAD)
@@ -39,11 +40,4 @@ done
 echo "CI watcher timed out after 20 minutes"; exit 1
 ```
 
-- Gets the SHA itself via `git rev-parse HEAD` — no caller substitution needed.
-- Polls every 30 seconds, up to 40 times (20-minute hard limit).
-- Empty-response guard: skips iterations where the API returns nothing (CI not yet registered).
-- API errors (e.g. 422) are printed and cause an immediate exit 1 — not silently swallowed.
-- On failure: prints failed check names then fetches and tails the workflow run logs.
-- Exits non-zero on failure or timeout so the task notification signals failure correctly.
-
-Note: use `$GITHUB_PERSONAL_ACCESS_TOKEN`, NOT `$GITHUB_TOKEN` — the latter is MCP-only.
+After the script finishes, report either "CI passed" or "CI failed" with the relevant output.
