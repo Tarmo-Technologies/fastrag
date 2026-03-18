@@ -168,7 +168,108 @@ impl Parser for HtmlParser {
             }
         }
 
+        // Extract footnotes from dedicated footnote sections
+        extract_footnotes(&html, &mut elements);
+
+        // Detect footnote references in paragraph text
+        detect_footnote_refs(&html, &mut elements);
+
         Ok(Document { metadata, elements })
+    }
+}
+
+/// Extract footnotes from footnote/endnote sections in the HTML.
+fn extract_footnotes(html: &Html, elements: &mut Vec<Element>) {
+    let footnote_section_selectors = [
+        "section.footnotes",
+        "div.footnotes",
+        "div.endnotes",
+        "ol.footnotes",
+        "[role='doc-endnotes']",
+    ];
+
+    for sel_str in &footnote_section_selectors {
+        if let Ok(sel) = Selector::parse(sel_str) {
+            for section in html.select(&sel) {
+                let item_sel = Selector::parse("li[id]").expect("valid");
+                for item in section.select(&item_sel) {
+                    let id = item.value().attr("id").unwrap_or("");
+                    let text: String = item.text().collect::<String>();
+                    let text = text.trim().to_string();
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let mut el = Element::new(ElementKind::Footnote, &text);
+                    if !id.is_empty() {
+                        el.attributes
+                            .insert("reference_id".to_string(), id.to_string());
+                    }
+                    // Avoid duplicate footnotes (same id)
+                    if !elements.iter().any(|e| {
+                        e.kind == ElementKind::Footnote
+                            && e.attributes.get("reference_id") == Some(&id.to_string())
+                    }) {
+                        elements.push(el);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Detect footnote references (e.g. <sup><a href="#fn1">) in the document
+/// and store them as an attribute on the parent paragraph elements.
+fn detect_footnote_refs(html: &Html, elements: &mut [Element]) {
+    // Collect all footnote ref IDs from <sup><a href="#fn..."> or <sup><a href="#en...">
+    let sup_sel = Selector::parse("sup > a[href]").expect("valid");
+    let mut refs_by_paragraph: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for a_el in html.select(&sup_sel) {
+        let href = a_el.value().attr("href").unwrap_or("");
+        if !href.starts_with('#') {
+            continue;
+        }
+        let ref_id = &href[1..];
+        if ref_id.is_empty() {
+            continue;
+        }
+
+        // Find the closest ancestor <p> text to associate
+        if let Some(parent_p) = a_el.ancestors().find_map(|ancestor| {
+            ancestor
+                .value()
+                .as_element()
+                .filter(|e| e.name() == "p")
+                .map(|_| {
+                    let node_ref = scraper::ElementRef::wrap(ancestor).unwrap();
+                    let text: String = node_ref
+                        .children()
+                        .filter_map(|c| c.value().as_text().map(|t| t.to_string()))
+                        .collect::<Vec<_>>()
+                        .join("")
+                        .trim()
+                        .to_string();
+                    text
+                })
+        }) {
+            refs_by_paragraph
+                .entry(parent_p)
+                .or_default()
+                .push(ref_id.to_string());
+        }
+    }
+
+    // Associate refs with matching paragraph elements
+    for element in elements.iter_mut() {
+        if element.kind != ElementKind::Paragraph {
+            continue;
+        }
+        if let Some(refs) = refs_by_paragraph.get(&element.text) {
+            element
+                .attributes
+                .insert("footnote_refs".to_string(), refs.join(","));
+        }
     }
 }
 
@@ -386,5 +487,95 @@ mod tests {
              </body></html>",
         );
         assert!(doc.elements.iter().any(|e| e.text == "Main content"));
+    }
+
+    // --- Footnote extraction ---
+
+    #[test]
+    fn footnotes_section_extracted() {
+        let doc = parse_html(
+            "<html><body>\
+             <p>Some text</p>\
+             <section class=\"footnotes\">\
+             <ol>\
+             <li id=\"fn1\">First footnote text.</li>\
+             <li id=\"fn2\">Second footnote text.</li>\
+             </ol>\
+             </section>\
+             </body></html>",
+        );
+        let footnotes: Vec<_> = doc
+            .elements
+            .iter()
+            .filter(|e| e.kind == ElementKind::Footnote)
+            .collect();
+        assert_eq!(
+            footnotes.len(),
+            2,
+            "expected 2 footnotes, got: {footnotes:?}"
+        );
+        assert_eq!(footnotes[0].text, "First footnote text.");
+        assert_eq!(
+            footnotes[0].attributes.get("reference_id"),
+            Some(&"fn1".to_string())
+        );
+        assert_eq!(footnotes[1].text, "Second footnote text.");
+    }
+
+    #[test]
+    fn footnote_refs_detected() {
+        let doc = parse_html(
+            "<html><body>\
+             <p>Text with a reference<sup><a href=\"#fn1\">1</a></sup> here.</p>\
+             <section class=\"footnotes\">\
+             <ol><li id=\"fn1\">A footnote.</li></ol>\
+             </section>\
+             </body></html>",
+        );
+        let para = doc
+            .elements
+            .iter()
+            .find(|e| e.kind == ElementKind::Paragraph && e.text.contains("Text with"))
+            .unwrap();
+        assert_eq!(
+            para.attributes.get("footnote_refs"),
+            Some(&"fn1".to_string()),
+            "expected footnote_refs attribute, got: {:?}",
+            para.attributes
+        );
+    }
+
+    #[test]
+    fn no_footnotes_no_crash() {
+        let doc = parse_html("<html><body><p>Just a paragraph.</p></body></html>");
+        let footnotes: Vec<_> = doc
+            .elements
+            .iter()
+            .filter(|e| e.kind == ElementKind::Footnote)
+            .collect();
+        assert!(footnotes.is_empty());
+    }
+
+    #[test]
+    fn endnotes_with_role_attribute() {
+        let doc = parse_html(
+            "<html><body>\
+             <p>Content</p>\
+             <div role=\"doc-endnotes\">\
+             <ol><li id=\"en1\">An endnote.</li></ol>\
+             </div>\
+             </body></html>",
+        );
+        let footnotes: Vec<_> = doc
+            .elements
+            .iter()
+            .filter(|e| e.kind == ElementKind::Footnote)
+            .collect();
+        assert_eq!(footnotes.len(), 1);
+        assert_eq!(footnotes[0].text, "An endnote.");
+        assert_eq!(
+            footnotes[0].attributes.get("reference_id"),
+            Some(&"en1".to_string())
+        );
     }
 }

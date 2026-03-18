@@ -279,6 +279,7 @@ pub enum ElementKind {
     BlockQuote,
     HorizontalRule,
     FormField,
+    Footnote,
     Unknown,
 }
 

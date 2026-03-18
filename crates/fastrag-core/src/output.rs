@@ -82,6 +82,17 @@ impl Document {
                         out.push_str(&format!("**{name}** ({field_type}): {}\n\n", element.text));
                     }
                 }
+                ElementKind::Footnote => {
+                    let ref_id = element
+                        .attributes
+                        .get("reference_id")
+                        .map_or("", |s| s.as_str());
+                    if ref_id.is_empty() {
+                        out.push_str(&format!("[^]: {}\n\n", element.text));
+                    } else {
+                        out.push_str(&format!("[^{ref_id}]: {}\n\n", element.text));
+                    }
+                }
                 ElementKind::Unknown => {
                     out.push_str(&element.text);
                     out.push_str("\n\n");
@@ -207,6 +218,23 @@ impl Document {
                     }
                     out.push_str(&format!("<dd>{}</dd>", escape_html(&element.text)));
                     out.push_str("</dl>\n");
+                }
+                ElementKind::Footnote => {
+                    let ref_id = element
+                        .attributes
+                        .get("reference_id")
+                        .map_or("", |s| s.as_str());
+                    if ref_id.is_empty() {
+                        out.push_str(&format!(
+                            "<aside class=\"footnote\">{}</aside>\n",
+                            escape_html(&element.text)
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "<aside class=\"footnote\" id=\"{ref_id}\">{}</aside>\n",
+                            escape_html(&element.text)
+                        ));
+                    }
                 }
                 ElementKind::Unknown => {
                     out.push_str(&format!("<p>{}</p>\n", escape_html(&element.text)));
@@ -578,6 +606,37 @@ mod tests {
         let el = Element::new(ElementKind::FormField, "value");
         assert_eq!(el.kind, ElementKind::FormField);
         assert_eq!(el.text, "value");
+    }
+
+    // --- Footnote rendering ---
+
+    #[test]
+    fn footnote_element_kind_exists() {
+        let el = Element::new(ElementKind::Footnote, "A footnote.");
+        assert_eq!(el.kind, ElementKind::Footnote);
+    }
+
+    #[test]
+    fn markdown_footnote_renders() {
+        let mut el = Element::new(ElementKind::Footnote, "This is footnote text.");
+        el.attributes
+            .insert("reference_id".to_string(), "fn1".to_string());
+        let doc = doc_with(vec![el]);
+        let md = doc.to_markdown();
+        assert!(md.contains("[^fn1]: This is footnote text."), "got: {md}");
+    }
+
+    #[test]
+    fn html_footnote_renders() {
+        let mut el = Element::new(ElementKind::Footnote, "A footnote.");
+        el.attributes
+            .insert("reference_id".to_string(), "fn1".to_string());
+        let doc = doc_with(vec![el]);
+        let html = doc.to_html();
+        assert!(
+            html.contains("<aside class=\"footnote\" id=\"fn1\">A footnote.</aside>"),
+            "got: {html}"
+        );
     }
 
     // --- to_jsonl ---
