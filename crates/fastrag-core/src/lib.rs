@@ -10,7 +10,7 @@ pub use chunking::{
     Chunk, ChunkingStrategy, ContextInjection, cosine_similarity, default_embedder,
     default_separators,
 };
-pub use document::{Document, Element, ElementKind, Metadata, is_caption_text};
+pub use document::{BoundingBox, Document, Element, ElementKind, Metadata, is_caption_text};
 pub use error::FastRagError;
 pub use format::{FileFormat, SourceInfo};
 pub use output::OutputFormat;

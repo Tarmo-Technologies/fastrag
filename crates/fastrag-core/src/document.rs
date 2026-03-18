@@ -38,6 +38,16 @@ impl Metadata {
     }
 }
 
+/// A bounding box for an element's position on a page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundingBox {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub page: usize,
+}
+
 /// A single structural element extracted from a document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Element {
@@ -56,6 +66,8 @@ pub struct Element {
     pub parent_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounding_box: Option<BoundingBox>,
 }
 
 impl Element {
@@ -70,6 +82,7 @@ impl Element {
             id: String::new(),
             parent_id: None,
             children: Vec::new(),
+            bounding_box: None,
         }
     }
 
@@ -85,6 +98,11 @@ impl Element {
 
     pub fn with_section(mut self, section: impl Into<String>) -> Self {
         self.section = Some(section.into());
+        self
+    }
+
+    pub fn with_bounding_box(mut self, bbox: BoundingBox) -> Self {
+        self.bounding_box = Some(bbox);
         self
     }
 }
@@ -525,5 +543,58 @@ mod tests {
         assert_eq!(m.page_count, None);
         assert_eq!(m.created_at, None);
         assert!(m.custom.is_empty());
+    }
+
+    // --- BoundingBox tests ---
+
+    #[test]
+    fn bounding_box_default_none() {
+        let el = Element::new(ElementKind::Paragraph, "text");
+        assert!(el.bounding_box.is_none());
+    }
+
+    #[test]
+    fn with_bounding_box_builder() {
+        let bbox = BoundingBox {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 50.0,
+            page: 1,
+        };
+        let el = Element::new(ElementKind::Paragraph, "text").with_bounding_box(bbox);
+        let bb = el.bounding_box.unwrap();
+        assert_eq!(bb.x, 10.0);
+        assert_eq!(bb.y, 20.0);
+        assert_eq!(bb.width, 100.0);
+        assert_eq!(bb.height, 50.0);
+        assert_eq!(bb.page, 1);
+    }
+
+    #[test]
+    fn bounding_box_serializes_when_present() {
+        let bbox = BoundingBox {
+            x: 5.0,
+            y: 10.0,
+            width: 200.0,
+            height: 30.0,
+            page: 2,
+        };
+        let el = Element::new(ElementKind::Paragraph, "text").with_bounding_box(bbox);
+        let json = serde_json::to_string(&el).unwrap();
+        assert!(json.contains("\"bounding_box\""), "json: {json}");
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["bounding_box"]["x"], 5.0);
+        assert_eq!(parsed["bounding_box"]["page"], 2);
+    }
+
+    #[test]
+    fn bounding_box_absent_when_none() {
+        let el = Element::new(ElementKind::Paragraph, "text");
+        let json = serde_json::to_string(&el).unwrap();
+        assert!(
+            !json.contains("bounding_box"),
+            "should omit bounding_box when None, got: {json}"
+        );
     }
 }

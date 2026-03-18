@@ -1,5 +1,6 @@
 use fastrag_core::{
-    Document, Element, ElementKind, FastRagError, FileFormat, Metadata, Parser, SourceInfo,
+    BoundingBox, Document, Element, ElementKind, FastRagError, FileFormat, Metadata, Parser,
+    SourceInfo,
 };
 use pdf::object::Resolve;
 
@@ -40,10 +41,25 @@ fn extract_page_elements(
 
     let mut page_text = String::with_capacity(ops.len() * 20);
 
+    // Track text positions for bounding box computation
+    let mut current_x: f32 = 0.0;
+    let mut current_y: f32 = 0.0;
+    // Positions collected per paragraph: (x, y) of each text fragment
+    let mut para_positions: Vec<Vec<(f32, f32)>> = vec![Vec::new()];
+
     for op in &ops {
         match op {
+            pdf::content::Op::SetTextMatrix { matrix } => {
+                current_x = matrix.e;
+                current_y = matrix.f;
+            }
             pdf::content::Op::TextDraw { text } => {
                 if let Ok(s) = text.to_string() {
+                    if !s.trim().is_empty() {
+                        if let Some(last) = para_positions.last_mut() {
+                            last.push((current_x, current_y));
+                        }
+                    }
                     page_text.push_str(&s);
                 }
             }
@@ -52,6 +68,11 @@ fn extract_page_elements(
                     if let pdf::content::TextDrawAdjusted::Text(t) = item
                         && let Ok(s) = t.to_string()
                     {
+                        if !s.trim().is_empty() {
+                            if let Some(last) = para_positions.last_mut() {
+                                last.push((current_x, current_y));
+                            }
+                        }
                         page_text.push_str(&s);
                     }
                 }
@@ -60,8 +81,14 @@ fn extract_page_elements(
                 page_text.push('\n');
             }
             pdf::content::Op::MoveTextPosition { translation } => {
+                current_x += translation.x;
+                current_y += translation.y;
                 if translation.y.abs() > 1.0 && !page_text.is_empty() {
                     page_text.push('\n');
+                    // Check if this creates a paragraph break
+                    if translation.y.abs() > 15.0 {
+                        para_positions.push(Vec::new());
+                    }
                 }
             }
             _ => {}
@@ -101,13 +128,33 @@ fn extract_page_elements(
         return Ok(elements);
     }
 
-    for para in page_text.split("\n\n") {
+    let paragraphs: Vec<&str> = page_text.split("\n\n").collect();
+    for (para_idx, para) in paragraphs.iter().enumerate() {
         let trimmed = para.trim();
         if trimmed.is_empty() {
             continue;
         }
-        elements
-            .push(Element::new(ElementKind::Paragraph, trimmed).with_page(page_num as usize + 1));
+        let mut el = Element::new(ElementKind::Paragraph, trimmed).with_page(page_num as usize + 1);
+
+        // Compute bounding box from tracked positions
+        if let Some(positions) = para_positions.get(para_idx) {
+            if !positions.is_empty() {
+                let min_x = positions.iter().map(|(x, _)| *x).fold(f32::MAX, f32::min);
+                let max_x = positions.iter().map(|(x, _)| *x).fold(f32::MIN, f32::max);
+                let min_y = positions.iter().map(|(_, y)| *y).fold(f32::MAX, f32::min);
+                let max_y = positions.iter().map(|(_, y)| *y).fold(f32::MIN, f32::max);
+
+                el = el.with_bounding_box(BoundingBox {
+                    x: min_x,
+                    y: min_y,
+                    width: (max_x - min_x).max(0.0),
+                    height: (max_y - min_y).max(0.0),
+                    page: page_num as usize + 1,
+                });
+            }
+        }
+
+        elements.push(el);
     }
     Ok(elements)
 }
@@ -272,6 +319,44 @@ mod tests {
                 assert_eq!(format, FileFormat::Pdf);
             }
             Err(other) => panic!("unexpected error type: {other}"),
+        }
+    }
+
+    #[test]
+    fn pdf_elements_have_bounding_boxes() {
+        let pdf_bytes = include_bytes!("../../../tests/fixtures/sample.pdf");
+        let parser = PdfParser;
+        let source = SourceInfo::new(FileFormat::Pdf);
+        let doc = parser.parse(pdf_bytes, &source).unwrap();
+
+        let with_bbox: Vec<_> = doc
+            .elements
+            .iter()
+            .filter(|e| e.bounding_box.is_some())
+            .collect();
+        assert!(
+            !with_bbox.is_empty(),
+            "expected some elements to have bounding boxes"
+        );
+    }
+
+    #[test]
+    fn bounding_box_page_matches_element_page() {
+        let pdf_bytes = include_bytes!("../../../tests/fixtures/sample.pdf");
+        let parser = PdfParser;
+        let source = SourceInfo::new(FileFormat::Pdf);
+        let doc = parser.parse(pdf_bytes, &source).unwrap();
+
+        for el in &doc.elements {
+            if let Some(ref bbox) = el.bounding_box {
+                assert_eq!(
+                    bbox.page,
+                    el.page.unwrap(),
+                    "bbox page {} != element page {:?}",
+                    bbox.page,
+                    el.page
+                );
+            }
         }
     }
 }
