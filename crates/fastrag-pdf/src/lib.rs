@@ -6,6 +6,15 @@ use pdf::object::Resolve;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
+#[cfg(feature = "images")]
+pub mod images;
+
+#[cfg(feature = "table-detect")]
+pub mod table;
+
+#[cfg(feature = "ocr")]
+pub mod ocr;
+
 /// PDF parser using the `pdf` crate.
 pub struct PdfParser;
 
@@ -13,12 +22,21 @@ fn extract_page_elements(
     page: &pdf::object::Page,
     resolver: &impl Resolve,
     page_num: u32,
+    #[allow(unused_variables)] input_bytes: &[u8],
 ) -> Result<Vec<Element>, FastRagError> {
     let ops = page
         .contents
         .as_ref()
         .and_then(|content| content.operations(resolver).ok())
         .unwrap_or_default();
+
+    // OCR: if this is a scanned page, use OCR instead of text extraction
+    #[cfg(feature = "ocr")]
+    {
+        if ocr::is_scanned_page(&ops) {
+            return ocr::ocr_page(input_bytes, page_num, 150);
+        }
+    }
 
     let mut page_text = String::with_capacity(ops.len() * 20);
 
@@ -50,11 +68,39 @@ fn extract_page_elements(
         }
     }
 
-    if page_text.trim().is_empty() {
-        return Ok(Vec::new());
+    let mut elements = Vec::new();
+
+    // Extract images if feature enabled
+    #[cfg(feature = "images")]
+    {
+        if let Ok(resources) = page.resources() {
+            let image_elements = images::extract_images(&ops, resources, resolver, page_num);
+            elements.extend(image_elements);
+        }
     }
 
-    let mut elements = Vec::new();
+    // Table detection: extract tables and build paragraphs from remaining text
+    #[cfg(feature = "table-detect")]
+    {
+        let (table_elements, remaining) = table::extract_tables_from_ops(&ops, page_num);
+        if !table_elements.is_empty() {
+            elements.extend(table_elements);
+            // Build paragraphs from remaining (non-table) text
+            for pt in &remaining {
+                elements.push(
+                    Element::new(ElementKind::Paragraph, pt.text.clone())
+                        .with_page(page_num as usize + 1),
+                );
+            }
+            return Ok(elements);
+        }
+    }
+
+    // Default paragraph extraction from plain text
+    if page_text.trim().is_empty() {
+        return Ok(elements);
+    }
+
     for para in page_text.split("\n\n") {
         let trimmed = para.trim();
         if trimmed.is_empty() {
@@ -109,7 +155,7 @@ impl Parser for PdfParser {
                 format: FileFormat::Pdf,
                 message: format!("page {}: {}", pn + 1, e),
             })?;
-            extract_page_elements(&page, &resolver, pn)
+            extract_page_elements(&page, &resolver, pn, input)
         };
 
         #[cfg(feature = "parallel")]
