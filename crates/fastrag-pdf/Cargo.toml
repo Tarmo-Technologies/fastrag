@@ -10,7 +10,19 @@ repository.workspace = true
 fastrag-core.workspace = true
 pdf = "0.9"
 rayon = { workspace = true, optional = true }
+pdfium-render = { version = "0.8", features = ["static"], optional = true }
+tesseract = { version = "0.15", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "pdf_parsing"
+harness = false
 
 [features]
 default = []
 parallel = ["rayon"]
+table-detect = []
+images = []
+ocr = ["dep:pdfium-render", "dep:tesseract"]
