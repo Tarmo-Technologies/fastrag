@@ -57,6 +57,11 @@ pub struct ChunkDocumentParams {
     /// Output format: markdown, json, or text (default: markdown)
     #[schemars(description = "Output format: markdown, json, or text (default: markdown)")]
     pub format: Option<String>,
+    /// Context template for injecting document context into chunks
+    #[schemars(
+        description = "Template for context injection. Placeholders: {document_title}, {section}, {chunk_text}"
+    )]
+    pub context_template: Option<String>,
     /// Similarity threshold for semantic chunking (0.0 to 1.0)
     #[schemars(
         description = "Similarity threshold for semantic chunking (0.0 to 1.0). Used when strategy is 'semantic'."
@@ -187,9 +192,18 @@ impl FastRagMcpServer {
             },
         };
 
+        let context_injection = params
+            .context_template
+            .map(|t| fastrag::ContextInjection { template: t });
+
         tokio::task::spawn_blocking(move || {
-            let result = ops::chunk_file(&path, &strategy, output_format)
-                .map_err(|e| format!("Failed to chunk {}: {e}", path.display()))?;
+            let result = ops::chunk_file_with_context(
+                &path,
+                &strategy,
+                output_format,
+                context_injection.as_ref(),
+            )
+            .map_err(|e| format!("Failed to chunk {}: {e}", path.display()))?;
             serde_json::to_string_pretty(&result)
                 .map_err(|e| format!("Failed to serialize result: {e}"))
         })
@@ -350,6 +364,7 @@ mod tests {
             overlap: None,
             separators: None,
             format: None,
+            context_template: None,
             similarity_threshold: None,
             percentile_threshold: None,
         };

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::registry::ParserRegistry;
-use crate::{ChunkingStrategy, Document, FastRagError, FileFormat, OutputFormat};
+use crate::{ChunkingStrategy, ContextInjection, Document, FastRagError, FileFormat, OutputFormat};
 
 /// Result of parsing a single file.
 #[derive(Debug, Serialize)]
@@ -54,6 +54,17 @@ pub fn parse_single(
     chunking: Option<&ChunkingStrategy>,
     detect_language: bool,
 ) -> Result<ParseResult, FastRagError> {
+    parse_single_with_context(path, output_format, chunking, detect_language, None)
+}
+
+/// Parse a single file with optional context injection.
+pub fn parse_single_with_context(
+    path: &Path,
+    output_format: OutputFormat,
+    chunking: Option<&ChunkingStrategy>,
+    detect_language: bool,
+    context_injection: Option<&ContextInjection>,
+) -> Result<ParseResult, FastRagError> {
     let registry = ParserRegistry::default();
     let mut doc = registry.parse_file(path)?;
     doc.build_hierarchy();
@@ -67,7 +78,10 @@ pub fn parse_single(
     let _ = detect_language;
 
     let content = if let Some(strategy) = chunking {
-        let chunks = doc.chunk(strategy);
+        let mut chunks = doc.chunk(strategy);
+        if let Some(injection) = context_injection {
+            doc.inject_context(&mut chunks, injection);
+        }
         render_chunks(&chunks, output_format)
     } else {
         render_document(&doc, output_format)
@@ -128,10 +142,24 @@ pub fn chunk_file(
     strategy: &ChunkingStrategy,
     output_format: OutputFormat,
 ) -> Result<ChunkResult, FastRagError> {
+    chunk_file_with_context(path, strategy, output_format, None)
+}
+
+/// Parse and chunk a file with optional context injection.
+pub fn chunk_file_with_context(
+    path: &Path,
+    strategy: &ChunkingStrategy,
+    output_format: OutputFormat,
+    context_injection: Option<&ContextInjection>,
+) -> Result<ChunkResult, FastRagError> {
     let registry = ParserRegistry::default();
     let doc = registry.parse_file(path)?;
 
-    let chunks = doc.chunk(strategy);
+    let mut chunks = doc.chunk(strategy);
+    if let Some(injection) = context_injection {
+        doc.inject_context(&mut chunks, injection);
+    }
+    let chunks = chunks;
     let chunk_infos: Vec<ChunkInfo> = chunks
         .iter()
         .map(|c| ChunkInfo {

@@ -12,6 +12,40 @@ pub struct Chunk {
     pub index: usize,
 }
 
+/// Configuration for injecting document context into chunk text.
+#[derive(Debug, Clone)]
+pub struct ContextInjection {
+    pub template: String,
+}
+
+impl Default for ContextInjection {
+    fn default() -> Self {
+        Self {
+            template: "{document_title} > {section}\n\n{chunk_text}".to_string(),
+        }
+    }
+}
+
+impl Document {
+    /// Inject document context into each chunk's text using the given template.
+    /// Available placeholders: `{document_title}`, `{section}`, `{chunk_text}`.
+    pub fn inject_context(&self, chunks: &mut [Chunk], injection: &ContextInjection) {
+        let title = self.metadata.title.clone().unwrap_or_default();
+
+        for chunk in chunks.iter_mut() {
+            let section = chunk.section.clone().unwrap_or_default();
+
+            let mut result = injection.template.clone();
+            result = result.replace("{document_title}", &title);
+            result = result.replace("{section}", &section);
+            result = result.replace("{chunk_text}", &chunk.text);
+
+            chunk.text = result;
+            chunk.char_count = chunk.text.len();
+        }
+    }
+}
+
 /// Strategy for splitting a document into chunks.
 pub enum ChunkingStrategy {
     /// Split by accumulating elements up to `max_characters`.
@@ -1055,5 +1089,92 @@ mod tests {
             "first chunk should end with separator, got: '{}'",
             chunks[0].text
         );
+    }
+
+    // --- Context injection tests ---
+
+    #[test]
+    fn context_injection_prepends_title_and_section() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Text),
+            elements: vec![
+                Element::new(ElementKind::Title, "My Doc"),
+                Element::new(ElementKind::Paragraph, "Content here"),
+            ],
+        };
+        doc.metadata.title = Some("My Doc".to_string());
+        let mut chunks = doc.chunk(&ChunkingStrategy::ByTitle {
+            max_characters: 1000,
+            overlap: 0,
+        });
+        let injection = ContextInjection::default();
+        doc.inject_context(&mut chunks, &injection);
+        assert!(
+            chunks[0].text.contains("My Doc"),
+            "chunk should contain title"
+        );
+        assert!(
+            chunks[0].text.contains("Content here"),
+            "chunk should contain original text"
+        );
+    }
+
+    #[test]
+    fn context_injection_custom_template() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Text),
+            elements: vec![Element::new(ElementKind::Paragraph, "Hello")],
+        };
+        doc.metadata.title = Some("Title".to_string());
+        let mut chunks = doc.chunk(&ChunkingStrategy::Basic {
+            max_characters: 1000,
+            overlap: 0,
+        });
+        chunks[0].section = Some("Intro".to_string());
+        let injection = ContextInjection {
+            template: "[{document_title}|{section}] {chunk_text}".to_string(),
+        };
+        doc.inject_context(&mut chunks, &injection);
+        assert_eq!(chunks[0].text, "[Title|Intro] Hello");
+    }
+
+    #[test]
+    fn context_injection_missing_section() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Text),
+            elements: vec![Element::new(ElementKind::Paragraph, "Text")],
+        };
+        doc.metadata.title = Some("Doc".to_string());
+        let mut chunks = doc.chunk(&ChunkingStrategy::Basic {
+            max_characters: 1000,
+            overlap: 0,
+        });
+        // section is None
+        let injection = ContextInjection::default();
+        doc.inject_context(&mut chunks, &injection);
+        // Should not panic, section replaced with empty string
+        assert!(chunks[0].text.contains("Doc"));
+        assert!(chunks[0].text.contains("Text"));
+    }
+
+    #[test]
+    fn context_injection_updates_char_count() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Text),
+            elements: vec![Element::new(ElementKind::Paragraph, "Short")],
+        };
+        doc.metadata.title = Some("Title".to_string());
+        let mut chunks = doc.chunk(&ChunkingStrategy::Basic {
+            max_characters: 1000,
+            overlap: 0,
+        });
+        let original_len = chunks[0].char_count;
+        let injection = ContextInjection::default();
+        doc.inject_context(&mut chunks, &injection);
+        assert!(
+            chunks[0].char_count > original_len,
+            "char_count should increase"
+        );
+        assert_eq!(chunks[0].char_count, chunks[0].text.len());
     }
 }

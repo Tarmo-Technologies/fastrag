@@ -27,6 +27,7 @@ async fn main() {
             chunk_separators,
             similarity_threshold,
             percentile_threshold,
+            context_template,
             detect_language,
         } => {
             let output_format = match format {
@@ -63,6 +64,10 @@ async fn main() {
                 }),
             };
 
+            let context_injection = context_template.map(|t| fastrag::ContextInjection {
+                template: t.replace("\\n", "\n"),
+            });
+
             let path = Path::new(&path);
             if path.is_file() {
                 parse_single_file(
@@ -70,6 +75,7 @@ async fn main() {
                     output_format,
                     output.as_deref(),
                     chunking.as_ref(),
+                    context_injection.as_ref(),
                     detect_language,
                 );
             } else if path.is_dir() {
@@ -106,9 +112,16 @@ fn parse_single_file(
     output_format: OutputFormat,
     output_dir: Option<&str>,
     chunking: Option<&ChunkingStrategy>,
+    context_injection: Option<&fastrag::ContextInjection>,
     detect_language: bool,
 ) {
-    match ops::parse_single(path, output_format, chunking, detect_language) {
+    match ops::parse_single_with_context(
+        path,
+        output_format,
+        chunking,
+        detect_language,
+        context_injection,
+    ) {
         Ok(result) => {
             if let Some(dir) = output_dir {
                 let out_path = output_path(path, dir, output_format);

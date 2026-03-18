@@ -51,6 +51,10 @@ pub enum Command {
         #[arg(long)]
         percentile_threshold: Option<f32>,
 
+        /// Context template for chunk context injection (e.g. "{document_title} > {section}\n\n{chunk_text}")
+        #[arg(long)]
+        context_template: Option<String>,
+
         /// Detect document language
         #[arg(long)]
         detect_language: bool,
