@@ -460,7 +460,7 @@ fn semantic_chunk(
     for &split in &split_points {
         let group: Vec<&(String, Vec<usize>)> = sentences[start..split].iter().collect();
         if !group.is_empty() {
-            let chunk = build_sentence_chunk(&group, &mut chunks, elements, max_characters);
+            let chunk = build_sentence_chunk(&group, &chunks, elements, max_characters);
             chunks.extend(chunk);
         }
         start = split;
@@ -468,7 +468,7 @@ fn semantic_chunk(
     // Remaining sentences
     let group: Vec<&(String, Vec<usize>)> = sentences[start..].iter().collect();
     if !group.is_empty() {
-        let chunk = build_sentence_chunk(&group, &mut chunks, elements, max_characters);
+        let chunk = build_sentence_chunk(&group, &chunks, elements, max_characters);
         chunks.extend(chunk);
     }
 
