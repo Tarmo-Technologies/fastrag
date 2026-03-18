@@ -101,14 +101,9 @@ fn make_table_element(headers: &[String], rows: &[Vec<String>]) -> Element {
     attrs.insert("rows".to_string(), rows.len().to_string());
     attrs.insert("columns".to_string(), headers.len().to_string());
 
-    Element {
-        kind: ElementKind::Table,
-        text: table,
-        page: None,
-        section: None,
-        depth: 0,
-        attributes: attrs,
-    }
+    let mut el = Element::new(ElementKind::Table, table);
+    el.attributes = attrs;
+    el
 }
 
 #[cfg(test)]

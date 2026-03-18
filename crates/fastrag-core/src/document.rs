@@ -50,6 +50,12 @@ pub struct Element {
     pub depth: u8,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub attributes: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<String>,
 }
 
 impl Element {
@@ -61,6 +67,9 @@ impl Element {
             section: None,
             depth: 0,
             attributes: HashMap::new(),
+            id: String::new(),
+            parent_id: None,
+            children: Vec::new(),
         }
     }
 
@@ -77,6 +86,70 @@ impl Element {
     pub fn with_section(mut self, section: impl Into<String>) -> Self {
         self.section = Some(section.into());
         self
+    }
+}
+
+impl Document {
+    /// Assign sequential IDs and build parent-child hierarchy based on heading structure.
+    pub fn build_hierarchy(&mut self) {
+        // Pass 1: assign sequential IDs
+        for (i, el) in self.elements.iter_mut().enumerate() {
+            el.id = format!("el-{i}");
+        }
+
+        // Pass 2: assign parent_id using heading stack
+        // Stack entries: (heading_depth, element_index)
+        let mut stack: Vec<(u8, usize)> = Vec::new();
+
+        for i in 0..self.elements.len() {
+            let kind = self.elements[i].kind.clone();
+            let depth = self.elements[i].depth;
+
+            match kind {
+                ElementKind::Title | ElementKind::Heading => {
+                    // Effective depth: Title=0, Heading uses its depth field
+                    let effective_depth = if kind == ElementKind::Title { 0 } else { depth };
+
+                    // Pop stack entries with depth >= current
+                    while let Some(&(d, _)) = stack.last() {
+                        if d >= effective_depth {
+                            stack.pop();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // If stack is non-empty, this heading is a child of the top
+                    if let Some(&(_, parent_idx)) = stack.last() {
+                        let parent_id = self.elements[parent_idx].id.clone();
+                        self.elements[i].parent_id = Some(parent_id);
+                    }
+
+                    stack.push((effective_depth, i));
+                }
+                _ => {
+                    // Content element: parent is top of stack
+                    if let Some(&(_, parent_idx)) = stack.last() {
+                        let parent_id = self.elements[parent_idx].id.clone();
+                        self.elements[i].parent_id = Some(parent_id);
+                    }
+                }
+            }
+        }
+
+        // Pass 3: populate children vecs from parent_id references
+        // Collect (parent_index, child_id) pairs first to avoid borrow issues
+        let mut child_map: Vec<(usize, String)> = Vec::new();
+        for el in &self.elements {
+            if let Some(ref pid) = el.parent_id
+                && let Some(parent_idx) = self.elements.iter().position(|e| e.id == *pid)
+            {
+                child_map.push((parent_idx, el.id.clone()));
+            }
+        }
+        for (parent_idx, child_id) in child_map {
+            self.elements[parent_idx].children.push(child_id);
+        }
     }
 }
 
@@ -140,6 +213,124 @@ mod tests {
         assert_eq!(el.page, Some(3));
         assert_eq!(el.section, Some("code".to_string()));
         assert_eq!(el.text, "x = 1");
+    }
+
+    #[test]
+    fn element_new_has_empty_hierarchy_fields() {
+        let el = Element::new(ElementKind::Paragraph, "hello");
+        assert!(el.id.is_empty());
+        assert_eq!(el.parent_id, None);
+        assert!(el.children.is_empty());
+    }
+
+    #[test]
+    fn build_hierarchy_assigns_sequential_ids() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Html),
+            elements: vec![
+                Element::new(ElementKind::Paragraph, "a"),
+                Element::new(ElementKind::Paragraph, "b"),
+                Element::new(ElementKind::Paragraph, "c"),
+            ],
+        };
+        doc.build_hierarchy();
+        assert_eq!(doc.elements[0].id, "el-0");
+        assert_eq!(doc.elements[1].id, "el-1");
+        assert_eq!(doc.elements[2].id, "el-2");
+    }
+
+    #[test]
+    fn build_hierarchy_heading_parents_content() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Html),
+            elements: vec![
+                Element::new(ElementKind::Title, "Title"),
+                Element::new(ElementKind::Paragraph, "intro"),
+                Element::new(ElementKind::Heading, "Section 1").with_depth(1),
+                Element::new(ElementKind::Paragraph, "body"),
+            ],
+        };
+        doc.build_hierarchy();
+        // intro's parent is Title
+        assert_eq!(doc.elements[1].parent_id, Some("el-0".to_string()));
+        // Section 1's parent is Title (depth 1 > depth 0)
+        assert_eq!(doc.elements[2].parent_id, Some("el-0".to_string()));
+        // body's parent is Section 1
+        assert_eq!(doc.elements[3].parent_id, Some("el-2".to_string()));
+    }
+
+    #[test]
+    fn build_hierarchy_same_level_resets() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Html),
+            elements: vec![
+                Element::new(ElementKind::Heading, "H1-a").with_depth(1),
+                Element::new(ElementKind::Paragraph, "under a"),
+                Element::new(ElementKind::Heading, "H1-b").with_depth(1),
+                Element::new(ElementKind::Paragraph, "under b"),
+            ],
+        };
+        doc.build_hierarchy();
+        // "under a" is child of H1-a
+        assert_eq!(doc.elements[1].parent_id, Some("el-0".to_string()));
+        // H1-b has no parent (same level, stack popped)
+        assert_eq!(doc.elements[2].parent_id, None);
+        // "under b" is child of H1-b
+        assert_eq!(doc.elements[3].parent_id, Some("el-2".to_string()));
+    }
+
+    #[test]
+    fn build_hierarchy_nested_headings() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Html),
+            elements: vec![
+                Element::new(ElementKind::Heading, "H1").with_depth(1),
+                Element::new(ElementKind::Heading, "H2").with_depth(2),
+                Element::new(ElementKind::Paragraph, "content"),
+            ],
+        };
+        doc.build_hierarchy();
+        // H2's parent is H1
+        assert_eq!(doc.elements[1].parent_id, Some("el-0".to_string()));
+        // content's parent is H2
+        assert_eq!(doc.elements[2].parent_id, Some("el-1".to_string()));
+    }
+
+    #[test]
+    fn build_hierarchy_children_populated() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Html),
+            elements: vec![
+                Element::new(ElementKind::Title, "Doc Title"),
+                Element::new(ElementKind::Paragraph, "intro"),
+                Element::new(ElementKind::Heading, "Sec").with_depth(1),
+            ],
+        };
+        doc.build_hierarchy();
+        // Title should have children: el-1 (Paragraph) and el-2 (Heading)
+        assert_eq!(doc.elements[0].children, vec!["el-1", "el-2"]);
+    }
+
+    #[test]
+    fn json_output_includes_hierarchy() {
+        let mut doc = Document {
+            metadata: Metadata::new(FileFormat::Html),
+            elements: vec![
+                Element::new(ElementKind::Title, "Title"),
+                Element::new(ElementKind::Paragraph, "text"),
+            ],
+        };
+        doc.build_hierarchy();
+        let json = serde_json::to_string(&doc).unwrap();
+        assert!(json.contains("\"id\":\"el-0\""), "missing id in json");
+        assert!(
+            json.contains("\"parent_id\":\"el-0\""),
+            "missing parent_id in json"
+        );
+        assert!(
+            json.contains("\"children\":[\"el-1\"]"),
+            "missing children in json: {json}"
+        );
     }
 
     #[test]
