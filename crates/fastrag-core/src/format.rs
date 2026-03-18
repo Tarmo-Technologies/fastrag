@@ -18,6 +18,7 @@ pub enum FileFormat {
     Xml,
     Epub,
     Rtf,
+    Email,
     Unknown,
 }
 
@@ -35,6 +36,7 @@ impl fmt::Display for FileFormat {
             Self::Xml => write!(f, "XML"),
             Self::Epub => write!(f, "EPUB"),
             Self::Rtf => write!(f, "RTF"),
+            Self::Email => write!(f, "Email"),
             Self::Unknown => write!(f, "Unknown"),
         }
     }
@@ -56,6 +58,7 @@ impl FileFormat {
                 "xml" => return Self::Xml,
                 "epub" => return Self::Epub,
                 "rtf" => return Self::Rtf,
+                "eml" => return Self::Email,
                 _ => {}
             }
         }
@@ -100,6 +103,7 @@ impl FileFormat {
             Self::Xml,
             Self::Epub,
             Self::Rtf,
+            Self::Email,
         ]
     }
 }
@@ -331,7 +335,7 @@ mod tests {
 
     #[test]
     fn all_known_length() {
-        assert_eq!(FileFormat::all_known().len(), 11);
+        assert_eq!(FileFormat::all_known().len(), 12);
     }
 
     #[test]
@@ -348,6 +352,7 @@ mod tests {
         assert!(known.contains(&FileFormat::Xml));
         assert!(known.contains(&FileFormat::Epub));
         assert!(known.contains(&FileFormat::Rtf));
+        assert!(known.contains(&FileFormat::Email));
     }
 
     #[test]
@@ -374,6 +379,19 @@ mod tests {
     #[test]
     fn display_rtf() {
         assert_eq!(format!("{}", FileFormat::Rtf), "RTF");
+    }
+
+    #[test]
+    fn detect_eml_extension() {
+        assert_eq!(
+            FileFormat::detect(Path::new("mail.eml"), &[]),
+            FileFormat::Email
+        );
+    }
+
+    #[test]
+    fn display_email() {
+        assert_eq!(format!("{}", FileFormat::Email), "Email");
     }
 
     // --- SourceInfo tests ---

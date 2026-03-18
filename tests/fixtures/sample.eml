@@ -1,0 +1,14 @@
+From: sender@example.com
+To: recipient@example.com
+Subject: Sample Email Document
+Date: Mon, 18 Mar 2024 10:30:00 +0000
+Content-Type: text/plain; charset="utf-8"
+
+Dear Recipient,
+
+This is a sample email document used for testing the FastRAG email parser. It contains multiple paragraphs to verify correct paragraph splitting.
+
+The email parser should extract headers like From, To, Subject, and Date into the document metadata. The Subject header should become the document title.
+
+Best regards,
+The Sender

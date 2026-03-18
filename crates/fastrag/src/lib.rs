@@ -9,6 +9,8 @@ pub use fastrag_core::*;
 pub use fastrag_csv::CsvParser;
 #[cfg(feature = "docx")]
 pub use fastrag_docx::DocxParser;
+#[cfg(feature = "email")]
+pub use fastrag_email::EmailParser;
 #[cfg(feature = "html")]
 pub use fastrag_html::HtmlParser;
 #[cfg(feature = "markdown")]

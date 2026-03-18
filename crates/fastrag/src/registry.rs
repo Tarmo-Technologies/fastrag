@@ -47,6 +47,9 @@ impl Default for ParserRegistry {
         #[cfg(feature = "rtf")]
         registry.register(Box::new(fastrag_rtf::RtfParser));
 
+        #[cfg(feature = "email")]
+        registry.register(Box::new(fastrag_email::EmailParser));
+
         registry
     }
 }
@@ -172,6 +175,6 @@ mod tests {
     #[test]
     fn default_registry_has_9_formats() {
         let reg = ParserRegistry::default();
-        assert_eq!(reg.supported_formats().len(), 11);
+        assert_eq!(reg.supported_formats().len(), 12);
     }
 }
