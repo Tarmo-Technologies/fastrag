@@ -315,6 +315,149 @@ pub fn extract_tables_from_ops(ops: &[Op], page_num: u32) -> (Vec<Element>, Vec<
     (table_elements, remaining)
 }
 
+/// Parse a markdown table string into rows of cell strings.
+pub fn parse_markdown_table_rows(text: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Skip separator rows (e.g. "| --- | --- |")
+        if trimmed.trim_start_matches('|').trim().starts_with("---") {
+            continue;
+        }
+        let cells: Vec<String> = trimmed
+            .trim_start_matches('|')
+            .trim_end_matches('|')
+            .split('|')
+            .map(|c| c.trim().to_string())
+            .collect();
+        if !cells.is_empty() {
+            rows.push(cells);
+        }
+    }
+    rows
+}
+
+/// Render a markdown table from header and data rows.
+pub fn render_markdown_table(header: &[String], rows: &[Vec<String>]) -> String {
+    let mut md = String::new();
+    // Header row
+    md.push_str("| ");
+    md.push_str(&header.join(" | "));
+    md.push_str(" |\n");
+    // Separator
+    md.push_str("| ");
+    md.push_str(
+        &header
+            .iter()
+            .map(|_| "---".to_string())
+            .collect::<Vec<_>>()
+            .join(" | "),
+    );
+    md.push_str(" |");
+    // Data rows
+    for row in rows {
+        md.push('\n');
+        md.push_str("| ");
+        md.push_str(&row.join(" | "));
+        md.push_str(" |");
+    }
+    md
+}
+
+/// Merge consecutive table elements that span adjacent pages into single tables.
+pub fn merge_continued_tables(elements: &mut Vec<Element>) {
+    let mut i = 0;
+    while i < elements.len() {
+        if elements[i].kind != ElementKind::Table {
+            i += 1;
+            continue;
+        }
+
+        let first_page = match elements[i].page {
+            Some(p) => p,
+            None => {
+                i += 1;
+                continue;
+            }
+        };
+
+        let first_rows = parse_markdown_table_rows(&elements[i].text);
+        if first_rows.is_empty() {
+            i += 1;
+            continue;
+        }
+        let col_count = first_rows[0].len();
+        let header = first_rows[0].clone();
+
+        let mut merged_data_rows: Vec<Vec<String>> = first_rows[1..].to_vec();
+        let mut last_page = first_page;
+        let mut merge_count = 0;
+
+        // Look ahead for continuation tables
+        let mut j = i + 1;
+        while j < elements.len() {
+            if elements[j].kind != ElementKind::Table {
+                j += 1;
+                continue;
+            }
+
+            let next_page = match elements[j].page {
+                Some(p) => p,
+                None => break,
+            };
+
+            // Must be on adjacent page
+            if next_page != last_page + 1 {
+                break;
+            }
+
+            // Check that it's an early element on that page (first table on next page)
+            let next_rows = parse_markdown_table_rows(&elements[j].text);
+            if next_rows.is_empty() {
+                break;
+            }
+
+            // Must have same column count
+            if next_rows[0].len() != col_count {
+                break;
+            }
+
+            // Deduplicate header if it matches
+            let data_start = if next_rows[0] == header { 1 } else { 0 };
+            merged_data_rows.extend(next_rows[data_start..].iter().cloned());
+            last_page = next_page;
+            merge_count += 1;
+            j += 1;
+        }
+
+        if merge_count > 0 {
+            // Rebuild the merged table
+            let merged_text = render_markdown_table(&header, &merged_data_rows);
+            elements[i].text = merged_text;
+            elements[i]
+                .attributes
+                .insert("page_span".to_string(), format!("{first_page}-{last_page}"));
+
+            // Remove the continuation elements (indices i+1..i+1+merge_count that are tables)
+            let mut removed = 0;
+            let mut k = i + 1;
+            while removed < merge_count && k < elements.len() {
+                if elements[k].kind == ElementKind::Table {
+                    elements.remove(k);
+                    removed += 1;
+                } else {
+                    k += 1;
+                }
+            }
+        }
+
+        i += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +580,106 @@ mod tests {
         assert_eq!(el.page, Some(1));
         let expected = "| Col1 | Col2 |\n| --- | --- |\n| val1 | val2 |";
         assert_eq!(el.text, expected, "got:\n{}", el.text);
+    }
+
+    #[test]
+    fn merge_two_page_table() {
+        let mut elements = vec![
+            Element::new(
+                ElementKind::Table,
+                "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |",
+            )
+            .with_page(1),
+            Element::new(
+                ElementKind::Table,
+                "| A | B | C |\n| --- | --- | --- |\n| 4 | 5 | 6 |",
+            )
+            .with_page(2),
+        ];
+        merge_continued_tables(&mut elements);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(
+            elements[0].attributes.get("page_span"),
+            Some(&"1-2".to_string())
+        );
+        let rows = parse_markdown_table_rows(&elements[0].text);
+        // header + 2 data rows
+        assert_eq!(rows.len(), 3, "got rows: {:?}", rows);
+        assert_eq!(rows[0], vec!["A", "B", "C"]);
+        assert_eq!(rows[1], vec!["1", "2", "3"]);
+        assert_eq!(rows[2], vec!["4", "5", "6"]);
+    }
+
+    #[test]
+    fn merge_deduplicates_repeated_header() {
+        let mut elements = vec![
+            Element::new(ElementKind::Table, "| X | Y |\n| --- | --- |\n| a | b |").with_page(1),
+            Element::new(ElementKind::Table, "| X | Y |\n| --- | --- |\n| c | d |").with_page(2),
+        ];
+        merge_continued_tables(&mut elements);
+        assert_eq!(elements.len(), 1);
+        let text = &elements[0].text;
+        // Only one header occurrence
+        let header_count = text.matches("| X | Y |").count();
+        assert_eq!(header_count, 1, "header repeated in: {text}");
+    }
+
+    #[test]
+    fn no_merge_different_columns() {
+        let mut elements = vec![
+            Element::new(
+                ElementKind::Table,
+                "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |",
+            )
+            .with_page(1),
+            Element::new(ElementKind::Table, "| X | Y |\n| --- | --- |\n| 4 | 5 |").with_page(2),
+        ];
+        merge_continued_tables(&mut elements);
+        assert_eq!(elements.len(), 2);
+    }
+
+    #[test]
+    fn no_merge_with_gap() {
+        let mut elements = vec![
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 1 | 2 |").with_page(1),
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 3 | 4 |").with_page(3),
+        ];
+        merge_continued_tables(&mut elements);
+        assert_eq!(elements.len(), 2);
+    }
+
+    #[test]
+    fn merge_three_pages() {
+        let mut elements = vec![
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 1 | 2 |").with_page(1),
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 3 | 4 |").with_page(2),
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 5 | 6 |").with_page(3),
+        ];
+        merge_continued_tables(&mut elements);
+        assert_eq!(elements.len(), 1);
+        assert_eq!(
+            elements[0].attributes.get("page_span"),
+            Some(&"1-3".to_string())
+        );
+        let rows = parse_markdown_table_rows(&elements[0].text);
+        assert_eq!(rows.len(), 4); // header + 3 data rows
+    }
+
+    #[test]
+    fn preserves_non_table_elements() {
+        let mut elements = vec![
+            Element::new(ElementKind::Paragraph, "intro").with_page(1),
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 1 | 2 |").with_page(1),
+            Element::new(ElementKind::Table, "| A | B |\n| --- | --- |\n| 3 | 4 |").with_page(2),
+            Element::new(ElementKind::Paragraph, "outro").with_page(2),
+        ];
+        merge_continued_tables(&mut elements);
+        assert_eq!(elements.len(), 3);
+        assert_eq!(elements[0].kind, ElementKind::Paragraph);
+        assert_eq!(elements[0].text, "intro");
+        assert_eq!(elements[1].kind, ElementKind::Table);
+        assert_eq!(elements[2].kind, ElementKind::Paragraph);
+        assert_eq!(elements[2].text, "outro");
     }
 
     #[test]

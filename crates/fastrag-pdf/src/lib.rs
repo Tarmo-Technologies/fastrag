@@ -166,7 +166,11 @@ impl Parser for PdfParser {
         let page_results: Result<Vec<Vec<Element>>, FastRagError> =
             page_range.iter().map(process_page).collect();
 
-        let elements: Vec<Element> = page_results?.into_iter().flatten().collect();
+        #[allow(unused_mut)]
+        let mut elements: Vec<Element> = page_results?.into_iter().flatten().collect();
+
+        #[cfg(feature = "table-detect")]
+        table::merge_continued_tables(&mut elements);
 
         Ok(Document { metadata, elements })
     }
