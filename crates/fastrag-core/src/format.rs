@@ -17,6 +17,7 @@ pub enum FileFormat {
     Xlsx,
     Xml,
     Epub,
+    Rtf,
     Unknown,
 }
 
@@ -33,6 +34,7 @@ impl fmt::Display for FileFormat {
             Self::Xlsx => write!(f, "XLSX"),
             Self::Xml => write!(f, "XML"),
             Self::Epub => write!(f, "EPUB"),
+            Self::Rtf => write!(f, "RTF"),
             Self::Unknown => write!(f, "Unknown"),
         }
     }
@@ -53,6 +55,7 @@ impl FileFormat {
                 "xlsx" => return Self::Xlsx,
                 "xml" => return Self::Xml,
                 "epub" => return Self::Epub,
+                "rtf" => return Self::Rtf,
                 _ => {}
             }
         }
@@ -96,6 +99,7 @@ impl FileFormat {
             Self::Xlsx,
             Self::Xml,
             Self::Epub,
+            Self::Rtf,
         ]
     }
 }
@@ -327,7 +331,7 @@ mod tests {
 
     #[test]
     fn all_known_length() {
-        assert_eq!(FileFormat::all_known().len(), 10);
+        assert_eq!(FileFormat::all_known().len(), 11);
     }
 
     #[test]
@@ -343,6 +347,7 @@ mod tests {
         assert!(known.contains(&FileFormat::Xlsx));
         assert!(known.contains(&FileFormat::Xml));
         assert!(known.contains(&FileFormat::Epub));
+        assert!(known.contains(&FileFormat::Rtf));
     }
 
     #[test]
@@ -356,6 +361,19 @@ mod tests {
     #[test]
     fn display_epub() {
         assert_eq!(format!("{}", FileFormat::Epub), "EPUB");
+    }
+
+    #[test]
+    fn detect_rtf_extension() {
+        assert_eq!(
+            FileFormat::detect(Path::new("doc.rtf"), &[]),
+            FileFormat::Rtf
+        );
+    }
+
+    #[test]
+    fn display_rtf() {
+        assert_eq!(format!("{}", FileFormat::Rtf), "RTF");
     }
 
     // --- SourceInfo tests ---
