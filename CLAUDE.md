@@ -62,6 +62,17 @@ The MCP crate lives at `crates/fastrag-mcp/`.
 - Unit tests go in the same file as the code (`#[cfg(test)]` module)
 - Integration tests go in `tests/`
 
+### Commit Messages
+
+When a commit resolves a GitHub issue, include `Closes #N` in the commit message body. For multiple issues, use `Closes #N1, Closes #N2`. GitHub automatically closes the referenced issues when the commit lands on the default branch.
+
+Example:
+```
+feat: add EPUB format support
+
+Closes #6
+```
+
 ## Adding a New Format Parser
 
 1. Create `crates/fastrag-{format}/` with `Cargo.toml` and `src/lib.rs`
