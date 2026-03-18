@@ -28,6 +28,7 @@ async fn main() {
             similarity_threshold,
             percentile_threshold,
             context_template,
+            stream,
             detect_language,
         } => {
             let output_format = match format {
@@ -71,7 +72,9 @@ async fn main() {
             });
 
             let path = Path::new(&path);
-            if path.is_file() {
+            if stream && path.is_file() {
+                stream_file(path);
+            } else if path.is_file() {
                 parse_single_file(
                     path,
                     output_format,
@@ -105,6 +108,34 @@ async fn main() {
         #[cfg(feature = "mcp")]
         Command::Serve => {
             fastrag_mcp::serve_stdio().await.unwrap();
+        }
+    }
+}
+
+fn stream_file(path: &Path) {
+    use std::io::Write;
+
+    match ops::parse_stream(path) {
+        Ok((_format, elements)) => {
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            for result in elements {
+                match result {
+                    Ok(el) => {
+                        if let Ok(json) = serde_json::to_string(&el) {
+                            let _ = writeln!(handle, "{json}");
+                            let _ = handle.flush();
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error streaming {}: {e}", path.display());
+            std::process::exit(1);
         }
     }
 }
@@ -301,5 +332,24 @@ mod tests {
         let files = collect_files(&dir);
         assert!(files.is_empty());
         std::fs::remove_dir(&dir).ok();
+    }
+
+    #[test]
+    fn stream_file_produces_valid_jsonl() {
+        let fixtures = format!("{}/../tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+        let path = PathBuf::from(&fixtures).join("sample.txt");
+
+        let (format, elements) = ops::parse_stream(&path).unwrap();
+        assert_eq!(format, "Text");
+
+        let collected: Vec<_> = elements.filter_map(|r| r.ok()).collect();
+        assert!(!collected.is_empty());
+
+        // Each element should serialize to valid JSON
+        for el in &collected {
+            let json = serde_json::to_string(el).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert!(parsed["kind"].is_string());
+        }
     }
 }

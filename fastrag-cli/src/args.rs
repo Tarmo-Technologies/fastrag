@@ -55,6 +55,10 @@ pub enum Command {
         #[arg(long)]
         context_template: Option<String>,
 
+        /// Stream elements incrementally (JSONL output, skips hierarchy/captions)
+        #[arg(long)]
+        stream: bool,
+
         /// Detect document language
         #[arg(long)]
         detect_language: bool,

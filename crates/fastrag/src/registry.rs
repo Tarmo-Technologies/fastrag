@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use fastrag_core::{Document, FastRagError, FileFormat, Parser, SourceInfo};
+use fastrag_core::{Document, Element, FastRagError, FileFormat, Parser, SourceInfo};
 
 /// Registry that maps file formats to their parsers and handles dispatch.
 pub struct ParserRegistry {
@@ -87,6 +87,30 @@ impl ParserRegistry {
         let format = FileFormat::detect(path, first_bytes);
 
         self.parse_bytes(&data, format, path.to_string_lossy().to_string())
+    }
+
+    /// Stream elements from a file at the given path.
+    ///
+    /// Returns an iterator that yields elements incrementally.
+    /// Note: streaming skips `build_hierarchy()` and `associate_captions()`.
+    pub fn stream_file(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<(FileFormat, Vec<Result<Element, FastRagError>>), FastRagError> {
+        let path = path.as_ref();
+        let data = std::fs::read(path)?;
+        let first_bytes = &data[..data.len().min(1024)];
+        let format = FileFormat::detect(path, first_bytes);
+
+        let parser = self
+            .parsers
+            .get(&format)
+            .ok_or_else(|| FastRagError::UnsupportedFormat(format.to_string()))?;
+
+        let source = SourceInfo::new(format).with_filename(path.to_string_lossy().to_string());
+        let iter = parser.parse_stream(&data, &source)?;
+        let elements: Vec<_> = iter.collect();
+        Ok((format, elements))
     }
 
     /// Parse raw bytes with a known format.

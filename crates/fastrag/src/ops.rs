@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::registry::ParserRegistry;
-use crate::{ChunkingStrategy, ContextInjection, Document, FastRagError, FileFormat, OutputFormat};
+use crate::{
+    ChunkingStrategy, ContextInjection, Document, Element, FastRagError, FileFormat, OutputFormat,
+};
 
 /// Result of parsing a single file.
 #[derive(Debug, Serialize)]
@@ -195,6 +197,25 @@ pub fn chunk_file_with_context(
         chunks: chunk_infos,
         total_chunks,
     })
+}
+
+/// Stream elements from a file incrementally.
+///
+/// Unlike `parse_single`, streaming mode skips `build_hierarchy()` and
+/// `associate_captions()` — elements are yielded as they are extracted.
+/// Returns `(format_name, element_iterator)`.
+pub fn parse_stream(
+    path: &Path,
+) -> Result<
+    (
+        String,
+        Box<dyn Iterator<Item = Result<Element, FastRagError>>>,
+    ),
+    FastRagError,
+> {
+    let registry = ParserRegistry::default();
+    let (format, elements) = registry.stream_file(path)?;
+    Ok((format.to_string(), Box::new(elements.into_iter())))
 }
 
 /// Recursively collect parseable files from a directory.
@@ -462,6 +483,52 @@ mod tests {
         for r in &results {
             assert!(!r.filename.is_empty());
             assert!(!r.content.is_empty());
+        }
+    }
+
+    #[test]
+    fn parse_stream_txt_fixture() {
+        let fixtures = format!("{}/../../tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+        let path = PathBuf::from(&fixtures).join("sample.txt");
+        let (format, elements) = parse_stream(&path).unwrap();
+        assert_eq!(format, "Text");
+        let collected: Vec<_> = elements.filter_map(|r| r.ok()).collect();
+        assert!(
+            !collected.is_empty(),
+            "expected streaming elements from sample.txt"
+        );
+    }
+
+    #[test]
+    fn parse_stream_matches_parse_single_count() {
+        let fixtures = format!("{}/../../tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+        let path = PathBuf::from(&fixtures).join("sample.txt");
+
+        let regular = parse_single(&path, OutputFormat::Markdown, None, false).unwrap();
+        let (_, stream_elements) = parse_stream(&path).unwrap();
+        let stream_count = stream_elements.filter_map(|r| r.ok()).count();
+
+        assert_eq!(
+            regular.element_count, stream_count,
+            "streaming should yield same number of elements as regular parse"
+        );
+    }
+
+    #[test]
+    fn parse_stream_pdf_fixture() {
+        let fixtures = format!("{}/../../tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+        let path = PathBuf::from(&fixtures).join("sample.pdf");
+        let (format, elements) = parse_stream(&path).unwrap();
+        assert_eq!(format, "PDF");
+        let collected: Vec<_> = elements.filter_map(|r| r.ok()).collect();
+        assert!(
+            !collected.is_empty(),
+            "expected streaming elements from sample.pdf"
+        );
+        // Check page ordering is preserved
+        let pages: Vec<usize> = collected.iter().filter_map(|e| e.page).collect();
+        for w in pages.windows(2) {
+            assert!(w[0] <= w[1], "page order violated: {} after {}", w[1], w[0]);
         }
     }
 }

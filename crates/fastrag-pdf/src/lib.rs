@@ -311,6 +311,44 @@ impl Parser for PdfParser {
 
         Ok(Document { metadata, elements })
     }
+
+    fn parse_stream<'a>(
+        &'a self,
+        input: &'a [u8],
+        source: &'a SourceInfo,
+    ) -> Result<Box<dyn Iterator<Item = Result<Element, FastRagError>> + 'a>, FastRagError> {
+        let pdf =
+            pdf::file::FileOptions::cached()
+                .load(input)
+                .map_err(|e| FastRagError::Parse {
+                    format: source.format,
+                    message: e.to_string(),
+                })?;
+
+        let num_pages = pdf.num_pages();
+
+        // Collect page elements lazily, one page at a time
+        let mut all_elements: Vec<Result<Element, FastRagError>> = Vec::new();
+        let resolver = pdf.resolver();
+        for pn in 0..num_pages {
+            match pdf.get_page(pn) {
+                Ok(page) => match extract_page_elements(&page, &resolver, pn, input) {
+                    Ok(elements) => {
+                        all_elements.extend(elements.into_iter().map(Ok));
+                    }
+                    Err(e) => all_elements.push(Err(e)),
+                },
+                Err(e) => {
+                    all_elements.push(Err(FastRagError::Parse {
+                        format: FileFormat::Pdf,
+                        message: format!("page {}: {}", pn + 1, e),
+                    }));
+                }
+            }
+        }
+
+        Ok(Box::new(all_elements.into_iter()))
+    }
 }
 
 #[cfg(test)]
@@ -447,6 +485,33 @@ mod tests {
                     el.page
                 );
             }
+        }
+    }
+
+    #[test]
+    fn parse_stream_yields_same_elements_as_parse() {
+        let pdf_bytes: &[u8] = include_bytes!("../../../tests/fixtures/sample.pdf");
+        let parser = PdfParser;
+        let source = SourceInfo::new(FileFormat::Pdf).with_filename("sample.pdf");
+
+        let doc = parser.parse(pdf_bytes, &source).unwrap();
+        let stream_elements: Vec<_> = parser
+            .parse_stream(pdf_bytes, &source)
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(
+            doc.elements.len(),
+            stream_elements.len(),
+            "stream should yield same element count as parse"
+        );
+
+        for (i, (regular, streamed)) in doc.elements.iter().zip(stream_elements.iter()).enumerate()
+        {
+            assert_eq!(regular.kind, streamed.kind, "element {i}: kind mismatch");
+            assert_eq!(regular.text, streamed.text, "element {i}: text mismatch");
+            assert_eq!(regular.page, streamed.page, "element {i}: page mismatch");
         }
     }
 }

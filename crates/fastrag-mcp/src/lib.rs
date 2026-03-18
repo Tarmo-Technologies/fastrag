@@ -20,6 +20,11 @@ pub struct ParseFileParams {
     /// Whether to detect the document language
     #[schemars(description = "Whether to detect the document language")]
     pub detect_language: Option<bool>,
+    /// Whether to use streaming mode (skips hierarchy/captions, returns raw elements)
+    #[schemars(
+        description = "Use streaming mode for incremental output (skips hierarchy/captions)"
+    )]
+    pub stream: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -123,12 +128,21 @@ impl FastRagMcpServer {
         let path = PathBuf::from(&params.path);
         let output_format = parse_output_format(params.format.as_deref());
         let detect_language = params.detect_language.unwrap_or(false);
+        let stream = params.stream.unwrap_or(false);
 
         tokio::task::spawn_blocking(move || {
-            let result = ops::parse_single(&path, output_format, None, detect_language)
-                .map_err(|e| format!("Failed to parse {}: {e}", path.display()))?;
-            serde_json::to_string_pretty(&result)
-                .map_err(|e| format!("Failed to serialize result: {e}"))
+            if stream {
+                let (_format, elements) = ops::parse_stream(&path)
+                    .map_err(|e| format!("Failed to stream {}: {e}", path.display()))?;
+                let collected: Vec<_> = elements.filter_map(|r| r.ok()).collect();
+                serde_json::to_string_pretty(&collected)
+                    .map_err(|e| format!("Failed to serialize result: {e}"))
+            } else {
+                let result = ops::parse_single(&path, output_format, None, detect_language)
+                    .map_err(|e| format!("Failed to parse {}: {e}", path.display()))?;
+                serde_json::to_string_pretty(&result)
+                    .map_err(|e| format!("Failed to serialize result: {e}"))
+            }
         })
         .await
         .map_err(|e| format!("Task failed: {e}"))?
@@ -355,6 +369,7 @@ mod tests {
             path,
             format: None,
             detect_language: None,
+            stream: None,
         };
         let result = server.parse_file(Parameters(params)).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
@@ -392,8 +407,33 @@ mod tests {
             path: "/nonexistent/file.txt".into(),
             format: None,
             detect_language: None,
+            stream: None,
         };
         let result = server.parse_file(Parameters(params)).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn parse_file_streaming_mode() {
+        let server = FastRagMcpServer::new();
+        let fixtures = format!("{}/../../tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{fixtures}/sample.txt");
+        let params = ParseFileParams {
+            path,
+            format: None,
+            detect_language: None,
+            stream: Some(true),
+        };
+        let result = server.parse_file(Parameters(params)).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let arr = parsed.as_array().unwrap();
+        assert!(
+            !arr.is_empty(),
+            "streaming should return non-empty element array"
+        );
+        // Each element should have a kind field
+        for el in arr {
+            assert!(el["kind"].is_string(), "element missing kind: {el}");
+        }
     }
 }
