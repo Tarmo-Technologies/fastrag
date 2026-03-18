@@ -43,6 +43,14 @@ pub enum Command {
         #[arg(long)]
         chunk_separators: Option<String>,
 
+        /// Similarity threshold for semantic chunking (0.0 to 1.0)
+        #[arg(long)]
+        similarity_threshold: Option<f32>,
+
+        /// Percentile threshold for semantic chunking (0.0 to 100.0)
+        #[arg(long)]
+        percentile_threshold: Option<f32>,
+
         /// Detect document language
         #[arg(long)]
         detect_language: bool,
@@ -69,4 +77,5 @@ pub enum ChunkStrategyArg {
     Basic,
     ByTitle,
     Recursive,
+    Semantic,
 }

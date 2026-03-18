@@ -57,6 +57,16 @@ pub struct ChunkDocumentParams {
     /// Output format: markdown, json, or text (default: markdown)
     #[schemars(description = "Output format: markdown, json, or text (default: markdown)")]
     pub format: Option<String>,
+    /// Similarity threshold for semantic chunking (0.0 to 1.0)
+    #[schemars(
+        description = "Similarity threshold for semantic chunking (0.0 to 1.0). Used when strategy is 'semantic'."
+    )]
+    pub similarity_threshold: Option<f32>,
+    /// Percentile threshold for semantic chunking (0.0 to 100.0)
+    #[schemars(
+        description = "Percentile threshold for semantic chunking (0.0 to 100.0). Used when strategy is 'semantic'."
+    )]
+    pub percentile_threshold: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +176,11 @@ impl FastRagMcpServer {
                     separators: params.separators.unwrap_or_else(default_separators),
                 }
             }
+            Some("semantic") => ChunkingStrategy::Semantic {
+                max_characters: max_chars,
+                similarity_threshold: params.similarity_threshold,
+                percentile_threshold: params.percentile_threshold,
+            },
             _ => ChunkingStrategy::Basic {
                 max_characters: max_chars,
                 overlap,
@@ -335,6 +350,8 @@ mod tests {
             overlap: None,
             separators: None,
             format: None,
+            similarity_threshold: None,
+            percentile_threshold: None,
         };
         let result = server.chunk_document(Parameters(params)).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();

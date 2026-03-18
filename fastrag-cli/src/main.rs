@@ -25,6 +25,8 @@ async fn main() {
             chunk_size,
             chunk_overlap,
             chunk_separators,
+            similarity_threshold,
+            percentile_threshold,
             detect_language,
         } => {
             let output_format = match format {
@@ -53,6 +55,11 @@ async fn main() {
                                 .collect()
                         })
                         .unwrap_or_else(fastrag::default_separators),
+                }),
+                ChunkStrategyArg::Semantic => Some(ChunkingStrategy::Semantic {
+                    max_characters: chunk_size,
+                    similarity_threshold,
+                    percentile_threshold,
                 }),
             };
 

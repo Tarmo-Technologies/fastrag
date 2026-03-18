@@ -30,6 +30,12 @@ pub enum ChunkingStrategy {
         overlap: usize,
         separators: Vec<String>,
     },
+    /// Semantic chunking: split on embedding similarity boundaries.
+    Semantic {
+        max_characters: usize,
+        similarity_threshold: Option<f32>,
+        percentile_threshold: Option<f32>,
+    },
 }
 
 /// Default separators for recursive character splitting (most to least specific).
@@ -60,6 +66,39 @@ impl Document {
                 overlap,
                 separators,
             } => recursive_character_chunk(&self.elements, *max_characters, *overlap, separators),
+            ChunkingStrategy::Semantic {
+                max_characters,
+                similarity_threshold,
+                percentile_threshold,
+            } => semantic_chunk(
+                &self.elements,
+                *max_characters,
+                *similarity_threshold,
+                *percentile_threshold,
+                &default_embedder,
+            ),
+        }
+    }
+
+    /// Split this document into chunks using semantic strategy with a custom embedder.
+    pub fn chunk_with_embedder(
+        &self,
+        strategy: &ChunkingStrategy,
+        embedder: &dyn Fn(&str) -> Vec<f32>,
+    ) -> Vec<Chunk> {
+        match strategy {
+            ChunkingStrategy::Semantic {
+                max_characters,
+                similarity_threshold,
+                percentile_threshold,
+            } => semantic_chunk(
+                &self.elements,
+                *max_characters,
+                *similarity_threshold,
+                *percentile_threshold,
+                embedder,
+            ),
+            _ => self.chunk(strategy),
         }
     }
 }
@@ -264,6 +303,228 @@ fn split_keeping_separator(text: &str, separator: &str) -> Vec<String> {
     }
 
     pieces
+}
+
+/// Compute cosine similarity between two vectors.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if mag_a == 0.0 || mag_b == 0.0 {
+        return 0.0;
+    }
+    dot / (mag_a * mag_b)
+}
+
+/// Default bag-of-words embedder using character trigram feature hashing.
+/// Uses a fixed-size vector (256 dimensions) for consistent comparison.
+pub fn default_embedder(text: &str) -> Vec<f32> {
+    const DIM: usize = 256;
+    let lower = text.to_lowercase();
+    let chars: Vec<char> = lower.chars().collect();
+    let mut vec = vec![0.0f32; DIM];
+
+    if chars.len() < 3 {
+        for (i, &c) in chars.iter().enumerate() {
+            vec[c as usize % DIM] += (i + 1) as f32;
+        }
+        return vec;
+    }
+
+    for w in chars.windows(3) {
+        // Simple hash: combine the three char codes
+        let hash = (w[0] as usize)
+            .wrapping_mul(31)
+            .wrapping_add(w[1] as usize)
+            .wrapping_mul(31)
+            .wrapping_add(w[2] as usize);
+        vec[hash % DIM] += 1.0;
+    }
+
+    vec
+}
+
+fn semantic_chunk(
+    elements: &[Element],
+    max_characters: usize,
+    similarity_threshold: Option<f32>,
+    percentile_threshold: Option<f32>,
+    embedder: &dyn Fn(&str) -> Vec<f32>,
+) -> Vec<Chunk> {
+    if elements.is_empty() {
+        return Vec::new();
+    }
+
+    // Split elements into sentence-level units
+    let mut sentences: Vec<(String, Vec<usize>)> = Vec::new(); // (text, source element indices)
+    for (i, el) in elements.iter().enumerate() {
+        let text = el.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        // Split on sentence boundaries
+        let mut start = 0;
+        for (j, _) in text.match_indices(". ") {
+            let end = j + 2;
+            let sentence = text[start..end].trim();
+            if !sentence.is_empty() {
+                sentences.push((sentence.to_string(), vec![i]));
+            }
+            start = end;
+        }
+        let remainder = text[start..].trim();
+        if !remainder.is_empty() {
+            sentences.push((remainder.to_string(), vec![i]));
+        }
+    }
+
+    if sentences.len() <= 1 {
+        return vec![build_chunk(elements.to_vec(), 0, None)];
+    }
+
+    // Embed each sentence
+    let embeddings: Vec<Vec<f32>> = sentences.iter().map(|(text, _)| embedder(text)).collect();
+
+    // Compute consecutive cosine similarities
+    let mut similarities: Vec<f32> = Vec::new();
+    for i in 0..embeddings.len() - 1 {
+        // Pad shorter vectors with zeros for comparison
+        let a = &embeddings[i];
+        let b = &embeddings[i + 1];
+        let max_len = a.len().max(b.len());
+        let mut a_padded = a.clone();
+        let mut b_padded = b.clone();
+        a_padded.resize(max_len, 0.0);
+        b_padded.resize(max_len, 0.0);
+        similarities.push(cosine_similarity(&a_padded, &b_padded));
+    }
+
+    // Determine threshold
+    let threshold = if let Some(t) = similarity_threshold {
+        t
+    } else if let Some(p) = percentile_threshold {
+        // percentile-based: sort similarities, find the value at the given percentile
+        let mut sorted = similarities.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((p / 100.0) * (sorted.len() as f32 - 1.0)).round().max(0.0) as usize;
+        sorted[idx.min(sorted.len() - 1)]
+    } else {
+        0.5 // default
+    };
+
+    // Find split points where similarity drops below threshold
+    let mut split_points: Vec<usize> = Vec::new();
+    for (i, sim) in similarities.iter().enumerate() {
+        if *sim < threshold {
+            split_points.push(i + 1); // split after sentence i
+        }
+    }
+
+    // Group sentences into chunks
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    for &split in &split_points {
+        let group: Vec<&(String, Vec<usize>)> = sentences[start..split].iter().collect();
+        if !group.is_empty() {
+            let chunk = build_sentence_chunk(&group, &mut chunks, elements, max_characters);
+            chunks.extend(chunk);
+        }
+        start = split;
+    }
+    // Remaining sentences
+    let group: Vec<&(String, Vec<usize>)> = sentences[start..].iter().collect();
+    if !group.is_empty() {
+        let chunk = build_sentence_chunk(&group, &mut chunks, elements, max_characters);
+        chunks.extend(chunk);
+    }
+
+    // Fix indices
+    for (i, chunk) in chunks.iter_mut().enumerate() {
+        chunk.index = i;
+    }
+    chunks
+}
+
+fn build_sentence_chunk(
+    group: &[&(String, Vec<usize>)],
+    existing_chunks: &[Chunk],
+    elements: &[Element],
+    max_characters: usize,
+) -> Vec<Chunk> {
+    let text: String = group
+        .iter()
+        .map(|(t, _)| t.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if text.len() <= max_characters {
+        // Collect source elements
+        let mut el_indices: Vec<usize> = group
+            .iter()
+            .flat_map(|(_, idxs)| idxs.iter().copied())
+            .collect();
+        el_indices.sort();
+        el_indices.dedup();
+        let chunk_elements: Vec<Element> =
+            el_indices.iter().map(|&i| elements[i].clone()).collect();
+        let char_count = text.len();
+        vec![Chunk {
+            elements: chunk_elements,
+            text,
+            char_count,
+            section: None,
+            index: existing_chunks.len(),
+        }]
+    } else {
+        // Sub-chunk if text exceeds max_characters
+        let mut sub_chunks = Vec::new();
+        let mut current_text = String::new();
+        let mut current_els: Vec<usize> = Vec::new();
+
+        for (t, idxs) in group.iter() {
+            if !current_text.is_empty() && current_text.len() + 1 + t.len() > max_characters {
+                let el_list: Vec<Element> = {
+                    let mut sorted = current_els.clone();
+                    sorted.sort();
+                    sorted.dedup();
+                    sorted.iter().map(|&i| elements[i].clone()).collect()
+                };
+                let char_count = current_text.len();
+                sub_chunks.push(Chunk {
+                    elements: el_list,
+                    text: std::mem::take(&mut current_text),
+                    char_count,
+                    section: None,
+                    index: existing_chunks.len() + sub_chunks.len(),
+                });
+                current_els.clear();
+            }
+            if !current_text.is_empty() {
+                current_text.push(' ');
+            }
+            current_text.push_str(t);
+            current_els.extend(idxs);
+        }
+
+        if !current_text.is_empty() {
+            let el_list: Vec<Element> = {
+                let mut sorted = current_els;
+                sorted.sort();
+                sorted.dedup();
+                sorted.iter().map(|&i| elements[i].clone()).collect()
+            };
+            let char_count = current_text.len();
+            sub_chunks.push(Chunk {
+                elements: el_list,
+                text: current_text,
+                char_count,
+                section: None,
+                index: existing_chunks.len() + sub_chunks.len(),
+            });
+        }
+
+        sub_chunks
+    }
 }
 
 fn build_chunk(elements: Vec<Element>, index: usize, section: Option<String>) -> Chunk {
@@ -652,6 +913,127 @@ mod tests {
             .join("");
         assert!(all_text.contains("My Title"));
         assert!(all_text.contains("Some paragraph text."));
+    }
+
+    // --- Semantic chunking tests ---
+
+    #[test]
+    fn cosine_similarity_identical() {
+        let v = vec![1.0, 2.0, 3.0];
+        let sim = cosine_similarity(&v, &v);
+        assert!((sim - 1.0).abs() < 1e-6, "expected 1.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_orthogonal() {
+        let a = vec![1.0, 0.0];
+        let b = vec![0.0, 1.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!(sim.abs() < 1e-6, "expected 0.0, got {sim}");
+    }
+
+    #[test]
+    fn semantic_chunk_splits_dissimilar_topics() {
+        let doc = doc_with(vec![
+            Element::new(
+                ElementKind::Paragraph,
+                "Rust is a systems programming language focused on safety and performance.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "The Rust compiler enforces memory safety without a garbage collector.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "Chocolate cake is made with flour, sugar, cocoa powder, and eggs.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "Baking requires precise measurements and oven temperature control.",
+            ),
+        ]);
+        let chunks = doc.chunk(&ChunkingStrategy::Semantic {
+            max_characters: 500,
+            similarity_threshold: Some(0.3),
+            percentile_threshold: None,
+        });
+        assert!(
+            chunks.len() >= 2,
+            "expected ≥2 chunks, got {}",
+            chunks.len()
+        );
+    }
+
+    #[test]
+    fn semantic_chunk_keeps_similar_together() {
+        let doc = doc_with(vec![
+            Element::new(
+                ElementKind::Paragraph,
+                "Rust is a systems programming language.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "Rust programming focuses on memory safety.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "The Rust language has a strong type system.",
+            ),
+        ]);
+        let chunks = doc.chunk(&ChunkingStrategy::Semantic {
+            max_characters: 500,
+            similarity_threshold: Some(0.1),
+            percentile_threshold: None,
+        });
+        assert_eq!(chunks.len(), 1, "expected 1 chunk, got {}", chunks.len());
+    }
+
+    #[test]
+    fn semantic_chunk_with_custom_embedder() {
+        let doc = doc_with(vec![
+            Element::new(ElementKind::Paragraph, "Hello world"),
+            Element::new(ElementKind::Paragraph, "Goodbye world"),
+        ]);
+        // Custom embedder that returns length-based vector
+        let embedder = |text: &str| -> Vec<f32> { vec![text.len() as f32] };
+        let chunks = doc.chunk_with_embedder(
+            &ChunkingStrategy::Semantic {
+                max_characters: 500,
+                similarity_threshold: Some(0.5),
+                percentile_threshold: None,
+            },
+            &embedder,
+        );
+        assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn semantic_chunk_percentile_threshold() {
+        let doc = doc_with(vec![
+            Element::new(ElementKind::Paragraph, "Rust programming language is fast."),
+            Element::new(
+                ElementKind::Paragraph,
+                "Rust ensures memory safety at compile time.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "Cooking pasta requires boiling water and salt.",
+            ),
+            Element::new(
+                ElementKind::Paragraph,
+                "Italian cuisine uses fresh ingredients and olive oil.",
+            ),
+        ]);
+        let chunks = doc.chunk(&ChunkingStrategy::Semantic {
+            max_characters: 500,
+            similarity_threshold: None,
+            percentile_threshold: Some(50.0),
+        });
+        assert!(
+            chunks.len() >= 2,
+            "expected ≥2 chunks, got {}",
+            chunks.len()
+        );
     }
 
     #[test]
