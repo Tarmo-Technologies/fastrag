@@ -9,9 +9,11 @@ FastRAG is a Rust-based, single-binary document parser that replaces Python's `u
 - **Blazing fast** — native Rust performance, no Python/Java/Tika overhead
 - **Single binary** — no runtime dependencies to install
 - **Multiple formats** — PDF, HTML, Markdown, CSV, XML, DOCX, XLSX, PPTX, EPUB, RTF, Email (EML), plain text
-- **Structured output** — Markdown, JSON, HTML, or plain text with rich metadata
+- **Structured output** — Markdown, JSON, JSONL, HTML, or plain text with rich metadata
+- **Language detection** — document-level and per-element language identification
 - **Parallel processing** — batch parse entire directories with configurable workers
-- **PDF intelligence** — optional table detection, image extraction, and OCR for scanned pages
+- **PDF intelligence** — optional table detection, image extraction, form field extraction, and OCR for scanned pages
+- **Footnote extraction** — detects footnotes/endnotes in HTML documents
 
 ## Installation
 
@@ -37,6 +39,12 @@ fastrag parse document.pdf
 
 # Parse to JSON
 fastrag parse document.pdf --format json
+
+# Parse to JSONL (one JSON object per element, one per line)
+fastrag parse document.pdf --format jsonl
+
+# Detect language (document-level and per-element)
+fastrag parse document.pdf --detect-language
 
 # Parse an entire directory with 8 workers
 fastrag parse ./documents/ --output ./parsed/ -j 8
@@ -85,6 +93,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | RTF      | v0.1   | `fastrag-rtf` |
 | Email    | v0.1   | `fastrag-email` |
 
+## Output Formats
+
+FastRAG renders parsed documents in five output formats:
+
+| Format | Flag | Extension | Description |
+|--------|------|-----------|-------------|
+| Markdown | `--format markdown` | `.md` | Structured markdown with headings, code fences, tables (default) |
+| JSON | `--format json` | `.json` | Full document as pretty-printed JSON with metadata and elements |
+| JSONL | `--format jsonl` | `.jsonl` | One JSON object per element, one per line — suited for streaming pipelines |
+| Plain text | `--format text` | `.txt` | Concatenated element text with no formatting |
+| HTML | `--format html` | `.html` | Semantic HTML with proper tags for each element kind |
+
+## Language Detection
+
+FastRAG detects document language using the `whatlang` crate (feature-gated behind `language-detection`, enabled by default).
+
+With `--detect-language`:
+- **Document-level**: stores ISO 639-1 code and confidence in document metadata
+- **Per-element**: detects language for individual Paragraph, Title, Heading, BlockQuote, and ListItem elements (text ≥ 20 chars), storing `language` and `language_confidence` in element attributes
+
+Useful for multilingual documents where sections may be in different languages.
+
 ## PDF Feature Flags
 
 The PDF parser supports optional capabilities via feature flags:
@@ -93,6 +123,7 @@ The PDF parser supports optional capabilities via feature flags:
 |---------|------|-------------|-------------|
 | Table detection | `pdf-table-detect` | None | Detects tables from text positions, outputs markdown tables |
 | Image extraction | `pdf-images` | None | Extracts embedded images with chart/figure classification |
+| Form fields | `pdf-forms` | None | Extracts interactive form fields (name, type, value) from AcroForm dictionaries |
 | OCR | `pdf-ocr` | `pdfium-render`, `tesseract` | OCR for scanned (image-only) pages |
 
 Enable in your `Cargo.toml`:
@@ -103,6 +134,15 @@ fastrag = { version = "0.1", features = ["pdf-images", "pdf-table-detect"] }
 ```
 
 OCR requires system packages (`tesseract-ocr`, `tesseract-ocr-eng`) and links against PDFium statically.
+
+## HTML Footnotes
+
+The HTML parser extracts footnotes and endnotes from common patterns:
+- Footnote sections: `section.footnotes`, `div.footnotes`, `div.endnotes`, `[role=doc-endnotes]`
+- Footnote items: `li[id]` within those sections
+- Inline references: `<sup><a href="#fn...">` patterns in body paragraphs
+
+Footnotes become `Footnote` elements with a `reference_id` attribute. Paragraphs containing footnote references get a `footnote_refs` attribute listing the referenced IDs.
 
 ## Chunking for RAG
 
