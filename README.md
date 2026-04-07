@@ -305,6 +305,10 @@ The `serve-http` subcommand exposes a small operational surface for production u
 
 `/health` remains unauthenticated for liveness probes. Token comparison is constant-time via the `subtle` crate. If no token is set, the server logs a startup warning and accepts every request — intended only for trusted localhost use.
 
+### Incremental indexing
+
+Re-running `fastrag index <root> --corpus <corpus>` efficiently updates the corpus: unchanged files (identified via mtime and size) are skipped, stat-changed files are verified against their blake3 hash before re-embedding, and deleted files are automatically pruned from the index along with their chunks. Each input root maintains independent deletion tracking — removing files from one root doesn't affect others. Old (v1) corpora auto-migrate to schema v2 on first index; the initial run hashes every file once, and subsequent runs are fully incremental.
+
 ### Logging
 
 Logs go to stdout via `tracing`. Set `FASTRAG_LOG_FORMAT=json` for one-line JSON logs in production, or leave unset for the pretty terminal format. Filter levels with `FASTRAG_LOG=info,fastrag_cli=debug`.
