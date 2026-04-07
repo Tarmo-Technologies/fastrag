@@ -13,8 +13,24 @@ use fastrag::{ChunkingStrategy, OutputFormat};
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::Semaphore;
 
+fn init_tracing() {
+    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::fmt;
+    let filter = EnvFilter::try_from_env("FASTRAG_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
+    let json = std::env::var("FASTRAG_LOG_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or(false);
+    let builder = fmt().with_env_filter(filter);
+    let _ = if json {
+        builder.json().try_init()
+    } else {
+        builder.try_init()
+    };
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracing();
     let cli = Cli::parse();
 
     match cli.command {

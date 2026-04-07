@@ -83,5 +83,40 @@ async fn http_query_and_health_end_to_end() {
     assert_eq!(arr[0]["chunk_index"], 0);
     assert!(arr[0]["score"].as_f64().unwrap() >= arr[1]["score"].as_f64().unwrap());
 
+    let metrics = client
+        .get(format!("http://{addr}/metrics"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(metrics.status(), StatusCode::OK);
+    let body = metrics.text().await.unwrap();
+    assert!(
+        body.contains("fastrag_query_total"),
+        "missing fastrag_query_total in:\n{body}"
+    );
+    assert!(
+        body.contains("fastrag_query_duration_seconds"),
+        "missing fastrag_query_duration_seconds in:\n{body}"
+    );
+    assert!(
+        body.contains("fastrag_index_entries"),
+        "missing fastrag_index_entries in:\n{body}"
+    );
+    let lines = prometheus_parse::Scrape::parse(body.lines().map(|l| Ok(l.to_string()))).unwrap();
+    let total: f64 = lines
+        .samples
+        .iter()
+        .find(|s| s.metric == "fastrag_query_total")
+        .map(|s| match s.value {
+            prometheus_parse::Value::Counter(v) => v,
+            prometheus_parse::Value::Untyped(v) => v,
+            _ => panic!("unexpected metric kind for fastrag_query_total"),
+        })
+        .expect("fastrag_query_total sample present");
+    assert!(
+        total >= 1.0,
+        "expected at least one query recorded, got {total}"
+    );
+
     server.abort();
 }

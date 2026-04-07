@@ -22,6 +22,10 @@ serde_json = "1"
 serde.workspace = true
 thiserror.workspace = true
 axum = { workspace = true, optional = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
 
 [features]
 default = ["language-detection", "mcp", "retrieval"]
@@ -35,3 +39,4 @@ serde_json = "1"
 reqwest.workspace = true
 tempfile = "3"
 fastrag-embed = { workspace = true, features = ["test-utils"] }
+prometheus-parse = "0.2"

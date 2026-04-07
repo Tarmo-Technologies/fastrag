@@ -262,6 +262,43 @@ for chunk in &chunks {
 }
 ```
 
+## Deployment
+
+The `serve-http` subcommand exposes a small operational surface for production use.
+
+### Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Liveness probe — returns `{"status":"ok"}` |
+| `GET /query?q=...&top_k=N` | Semantic corpus search |
+| `GET /metrics` | Prometheus text-format metrics |
+
+### Metrics
+
+| Name | Type | Description |
+|------|------|-------------|
+| `fastrag_query_total` | counter | Total `/query` requests served |
+| `fastrag_query_duration_seconds` | histogram | `/query` latency distribution |
+| `fastrag_index_entries` | gauge | Number of entries in the loaded corpus |
+
+### Logging
+
+Logs go to stdout via `tracing`. Set `FASTRAG_LOG_FORMAT=json` for one-line JSON logs in production, or leave unset for the pretty terminal format. Filter levels with `FASTRAG_LOG=info,fastrag_cli=debug`.
+
+### systemd
+
+A sample unit file lives at `deploy/fastrag.service`. Copy it to `/etc/systemd/system/`, create the `fastrag` user and `/var/lib/fastrag/corpus`, then run `systemctl enable --now fastrag`.
+
+### Docker
+
+The repo ships a multi-stage `Dockerfile` that produces a distroless image (~50 MB):
+
+```bash
+docker build -t fastrag .
+docker run -p 8081:8081 -v /srv/fastrag:/var/lib/fastrag fastrag
+```
+
 ## Architecture
 
 FastRAG uses a workspace of small, focused crates:

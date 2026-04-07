@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -8,14 +9,17 @@ use axum::routing::get;
 use axum::{Json, Router};
 use fastrag::corpus::SearchHitDto;
 use fastrag::{Embedder, ops};
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use serde::Deserialize;
 use serde_json::json;
 use thiserror::Error;
+use tracing::{info, info_span, warn};
 
 #[derive(Clone)]
 struct AppState {
     corpus_dir: PathBuf,
     embedder: Arc<dyn Embedder>,
+    metrics: PrometheusHandle,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +43,8 @@ pub enum HttpError {
     EmbedLoader(#[from] crate::embed_loader::EmbedLoaderError),
     #[error("server error: {0}")]
     Server(String),
+    #[error("metrics setup: {0}")]
+    Metrics(String),
 }
 
 pub async fn serve_http(
@@ -56,12 +62,32 @@ pub async fn serve_http_with_embedder(
     listener: tokio::net::TcpListener,
     embedder: Arc<dyn Embedder>,
 ) -> Result<(), HttpError> {
+    let metrics = PrometheusBuilder::new()
+        .install_recorder()
+        .map_err(|e| HttpError::Metrics(e.to_string()))?;
+
+    metrics::describe_counter!("fastrag_query_total", "Total /query requests served");
+    metrics::describe_histogram!(
+        "fastrag_query_duration_seconds",
+        "Latency of /query requests in seconds"
+    );
+    metrics::describe_gauge!(
+        "fastrag_index_entries",
+        "Number of entries in the loaded corpus index"
+    );
+
+    if let Ok(info) = fastrag::corpus::corpus_info(&corpus_dir) {
+        metrics::gauge!("fastrag_index_entries").set(info.entry_count as f64);
+    }
+
     let app = Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics_handler))
         .route("/query", get(query))
         .with_state(AppState {
             corpus_dir,
             embedder,
+            metrics,
         });
 
     axum::serve(listener, app)
@@ -74,18 +100,46 @@ async fn health() -> impl IntoResponse {
     Json(json!({ "status": "ok" }))
 }
 
+async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
+    state.metrics.render()
+}
+
 async fn query(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
 ) -> Result<Json<Vec<SearchHitDto>>, Response> {
-    let hits = ops::query_corpus(
+    let span = info_span!(
+        "query",
+        q = %params.q,
+        top_k = params.top_k,
+        hit_count = tracing::field::Empty,
+        latency_ms = tracing::field::Empty,
+    );
+    let _enter = span.enter();
+    let start = Instant::now();
+
+    let result = ops::query_corpus(
         &state.corpus_dir,
         &params.q,
         params.top_k,
         state.embedder.as_ref(),
-    )
-    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
+    );
 
-    let hits = hits.into_iter().map(SearchHitDto::from).collect::<Vec<_>>();
-    Ok(Json(hits))
+    let elapsed = start.elapsed();
+    metrics::counter!("fastrag_query_total").increment(1);
+    metrics::histogram!("fastrag_query_duration_seconds").record(elapsed.as_secs_f64());
+    span.record("latency_ms", elapsed.as_millis() as u64);
+
+    match result {
+        Ok(hits) => {
+            span.record("hit_count", hits.len());
+            info!("query served");
+            let hits = hits.into_iter().map(SearchHitDto::from).collect::<Vec<_>>();
+            Ok(Json(hits))
+        }
+        Err(err) => {
+            warn!(error = %err, "query failed");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())
+        }
+    }
 }

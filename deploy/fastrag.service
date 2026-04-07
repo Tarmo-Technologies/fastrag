@@ -1,0 +1,37 @@
+[Unit]
+Description=FastRAG retrieval HTTP server
+Documentation=https://github.com/crook3dfingers/fastrag
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fastrag
+Group=fastrag
+ExecStart=/usr/local/bin/fastrag serve-http --corpus /var/lib/fastrag/corpus --port 8081
+Restart=on-failure
+RestartSec=5s
+
+Environment=FASTRAG_LOG=info
+Environment=FASTRAG_LOG_FORMAT=json
+Environment=RUST_BACKTRACE=1
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/fastrag
+
+[Install]
+WantedBy=multi-user.target
