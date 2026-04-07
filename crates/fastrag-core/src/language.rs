@@ -10,6 +10,9 @@ impl Document {
         }
 
         if let Some(info) = whatlang::detect(&sample) {
+            if info.confidence() < 0.5 {
+                return;
+            }
             let code = lang_to_iso639_1(info.lang());
             self.metadata
                 .custom
@@ -40,6 +43,9 @@ impl Document {
                 continue;
             }
             if let Some(info) = whatlang::detect(&element.text) {
+                if info.confidence() < 0.5 {
+                    continue;
+                }
                 let code = lang_to_iso639_1(info.lang());
                 element
                     .attributes
@@ -144,7 +150,7 @@ mod tests {
     fn detect_language_empty_doc() {
         let mut doc = doc_with(vec![]);
         doc.detect_language();
-        assert!(doc.metadata.custom.get("language").is_none());
+        assert!(!doc.metadata.custom.contains_key("language"));
     }
 
     #[test]
@@ -155,7 +161,7 @@ mod tests {
         ]);
         doc.detect_language();
         // No text sampled from Code/Table, so no detection
-        assert!(doc.metadata.custom.get("language").is_none());
+        assert!(!doc.metadata.custom.contains_key("language"));
     }
 
     #[test]
@@ -201,7 +207,7 @@ mod tests {
     fn detect_element_languages_skips_short() {
         let mut doc = doc_with(vec![Element::new(ElementKind::Paragraph, "Short text.")]);
         doc.detect_element_languages();
-        assert!(doc.elements[0].attributes.get("language").is_none());
+        assert!(!doc.elements[0].attributes.contains_key("language"));
     }
 
     #[test]
@@ -217,8 +223,8 @@ mod tests {
             ),
         ]);
         doc.detect_element_languages();
-        assert!(doc.elements[0].attributes.get("language").is_none());
-        assert!(doc.elements[1].attributes.get("language").is_none());
+        assert!(!doc.elements[0].attributes.contains_key("language"));
+        assert!(!doc.elements[1].attributes.contains_key("language"));
     }
 
     #[test]
@@ -241,6 +247,42 @@ mod tests {
         assert_eq!(
             doc.elements[1].attributes.get("language"),
             Some(&"de".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_language_skips_unreliable_short_mixed_content() {
+        // Mirrors the real fastrag sample.md/html content that whatlang was
+        // mis-labelling as "fr"/"pt" at low confidence.
+        let mut doc = doc_with(vec![
+            Element::new(ElementKind::Title, "FastRAG Sample Document"),
+            Element::new(
+                ElementKind::Paragraph,
+                "This is a sample markdown document for testing.",
+            ),
+            Element::new(ElementKind::Heading, "Features"),
+            Element::new(ElementKind::Paragraph, "Fast parsing"),
+        ]);
+        doc.detect_language();
+        let lang = doc.metadata.custom.get("language");
+        assert!(
+            lang.is_none() || lang == Some(&"en".to_string()),
+            "expected no detection or English, got {lang:?}",
+        );
+    }
+
+    #[test]
+    fn detect_element_languages_skips_unreliable() {
+        // A short mixed-vocab paragraph whatlang cannot confidently classify.
+        let mut doc = doc_with(vec![Element::new(
+            ElementKind::Paragraph,
+            "FastRAG parser titles headings paragraphs FastRAG parsed document.",
+        )]);
+        doc.detect_element_languages();
+        let lang = doc.elements[0].attributes.get("language");
+        assert!(
+            lang.is_none() || lang == Some(&"en".to_string()),
+            "expected no detection or English, got {lang:?}",
         );
     }
 

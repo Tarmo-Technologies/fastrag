@@ -239,7 +239,7 @@ mod tests {
         let doc = parse_md("```\ncode here\n```");
         assert_eq!(doc.elements[0].kind, ElementKind::Code);
         assert_eq!(doc.elements[0].text, "code here");
-        assert!(doc.elements[0].attributes.get("language").is_none());
+        assert!(!doc.elements[0].attributes.contains_key("language"));
     }
 
     #[test]

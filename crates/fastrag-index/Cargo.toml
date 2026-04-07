@@ -1,0 +1,18 @@
+[package]
+name = "fastrag-index"
+description = "Persistent vector index for FastRAG retrieval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fastrag-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+instant-distance = { workspace = true }
+bincode.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

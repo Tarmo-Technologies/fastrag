@@ -1,11 +1,18 @@
 use std::path::PathBuf;
 
+#[cfg(feature = "mcp-search")]
+use std::sync::Arc;
+
+#[cfg(feature = "mcp-search")]
+use fastrag::BgeSmallEmbedder;
 use fastrag::ops;
 use fastrag::{ChunkingStrategy, OutputFormat, default_separators};
 use rmcp::handler::server::{router::tool::ToolRouter, wrapper::Parameters};
 use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{ServerHandler, ServiceExt, schemars, tool, tool_router};
 use serde::Deserialize;
+#[cfg(feature = "mcp-search")]
+use tokio::sync::OnceCell;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ParseFileParams {
@@ -85,15 +92,31 @@ pub struct ChunkDocumentParams {
     pub percentile_threshold: Option<f32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchCorpusParams {
+    /// Search query
+    #[schemars(description = "Search query")]
+    pub query: String,
+    /// Corpus path
+    #[schemars(description = "Corpus path")]
+    pub corpus_path: PathBuf,
+    /// Number of hits to return
+    #[schemars(description = "Number of hits to return")]
+    pub top_k: Option<usize>,
+}
+
 pub struct FastRagMcpServer {
     _tool_router: ToolRouter<Self>,
+    #[cfg(feature = "mcp-search")]
+    embedder: OnceCell<Arc<BgeSmallEmbedder>>,
 }
 
 impl FastRagMcpServer {
     pub fn new() -> Self {
         Self {
             _tool_router: Self::tool_router(),
+            #[cfg(feature = "mcp-search")]
+            embedder: OnceCell::new(),
         }
     }
 }
@@ -112,6 +135,19 @@ fn parse_output_format(format: Option<&str>) -> OutputFormat {
         Some("html") => OutputFormat::Html,
         _ => OutputFormat::Markdown,
     }
+}
+
+#[cfg(feature = "mcp-search")]
+async fn load_embedder(
+    cell: &OnceCell<Arc<BgeSmallEmbedder>>,
+) -> Result<Arc<BgeSmallEmbedder>, String> {
+    cell.get_or_try_init(|| async {
+        BgeSmallEmbedder::from_hf_hub()
+            .map(Arc::new)
+            .map_err(|e| format!("Failed to load embedder: {e}"))
+    })
+    .await
+    .map(Arc::clone)
 }
 
 #[tool_router]
@@ -232,6 +268,45 @@ impl FastRagMcpServer {
         .await
         .map_err(|e| format!("Task failed: {e}"))?
     }
+
+    #[tool(description = "Search an indexed corpus for relevant chunks.")]
+    async fn search_corpus(
+        &self,
+        Parameters(params): Parameters<SearchCorpusParams>,
+    ) -> Result<String, String> {
+        #[cfg(feature = "mcp-search")]
+        {
+            let embedder = load_embedder(&self.embedder).await?;
+            let corpus_path = params.corpus_path.clone();
+            let query = params.query.clone();
+            let top_k = params.top_k.unwrap_or(5);
+
+            let hits = tokio::task::spawn_blocking(move || {
+                ops::query_corpus(&corpus_path, &query, top_k, embedder.as_ref())
+            })
+            .await
+            .map_err(|e| format!("Task failed: {e}"))?
+            .map_err(|e| {
+                format!(
+                    "Failed to query corpus {}: {e}",
+                    params.corpus_path.display()
+                )
+            })?;
+
+            let dto = hits
+                .into_iter()
+                .map(fastrag::corpus::SearchHitDto::from)
+                .collect::<Vec<_>>();
+            return serde_json::to_string_pretty(&dto)
+                .map_err(|e| format!("Failed to serialize result: {e}"));
+        }
+
+        #[cfg(not(feature = "mcp-search"))]
+        {
+            let _ = params;
+            Err("search_corpus requires the mcp-search feature".to_string())
+        }
+    }
 }
 
 impl ServerHandler for FastRagMcpServer {
@@ -242,7 +317,8 @@ impl ServerHandler for FastRagMcpServer {
                  RAG-ready chunks, `parse_directory` for batch processing, and \
                  `list_formats` to check supported file types. All tools accept an \
                  optional `format` parameter (markdown/json/jsonl/text/html) — default is markdown \
-                 which works best for LLM consumption.",
+                 which works best for LLM consumption. If retrieval support is enabled, \
+                 use `search_corpus` to search an indexed corpus for relevant chunks.",
         )
     }
 }

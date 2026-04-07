@@ -13,15 +13,23 @@ path = "src/main.rs"
 [dependencies]
 fastrag.workspace = true
 fastrag-mcp = { workspace = true, optional = true }
+fastrag-embed = { workspace = true, optional = true }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 indicatif = "0.17"
 serde_json = "1"
+serde.workspace = true
+thiserror.workspace = true
+axum = { workspace = true, optional = true }
 
 [features]
-default = ["language-detection", "mcp"]
+default = ["language-detection", "mcp", "retrieval"]
 language-detection = ["fastrag/language-detection"]
 mcp = ["dep:fastrag-mcp"]
+retrieval = ["fastrag/retrieval", "dep:fastrag-embed", "dep:axum"]
 
 [dev-dependencies]
 serde_json = "1"
+reqwest.workspace = true
+tempfile = "3"
+fastrag-embed = { workspace = true, features = ["test-utils"] }

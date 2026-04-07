@@ -4,7 +4,9 @@
 
 ```bash
 cargo test --workspace       # Run all tests
+cargo test --workspace --features retrieval  # Retrieval stack tests
 cargo clippy --workspace     # Lint
+cargo clippy --workspace --all-targets --features retrieval -- -D warnings  # Retrieval lint gate
 cargo fmt --check            # Format check
 cargo build --release        # Release build (binary at target/release/fastrag)
 ```
@@ -31,8 +33,22 @@ FastRAG includes an MCP (Model Context Protocol) server for AI assistant integra
 ```bash
 cargo run -- serve                    # Start MCP server (stdio transport)
 cargo build --release                 # Build with MCP
+cargo build -p fastrag-mcp --features mcp-search  # Enable corpus search tool
 cargo build --release --no-default-features --features language-detection  # Build without MCP
 ```
+
+### Retrieval CLI
+
+The CLI includes semantic corpus retrieval commands behind the `retrieval` feature. The `fastrag-cli` binary enables this feature by default.
+
+```bash
+cargo run -- index ./documents --corpus ./corpus
+cargo run -- query "invoice payment terms" --corpus ./corpus --top-k 5
+cargo run -- corpus-info --corpus ./corpus
+cargo run -- serve-http --corpus ./corpus --port 8081
+```
+
+The retrieval path uses `fastrag-embed` for embeddings and `fastrag-index` for persistence (`manifest.json`, `index.bin`, `entries.bin`).
 
 ### MCP Tools
 
@@ -42,6 +58,7 @@ cargo build --release --no-default-features --features language-detection  # Bui
 | `parse_directory` | Parse all files in a directory |
 | `list_formats` | List supported file formats |
 | `chunk_document` | Parse and chunk a file for RAG |
+| `search_corpus` | Semantic search across a persisted corpus |
 
 The MCP crate lives at `crates/fastrag-mcp/`.
 
@@ -51,7 +68,11 @@ The MCP crate lives at `crates/fastrag-mcp/`.
 - Every format parser implements the `Parser` trait from `fastrag-core`
 - `crates/fastrag/` is the facade library with `ParserRegistry` for format detection and dispatch
 - `crates/fastrag/src/ops.rs` is the shared operations layer used by both CLI and MCP
+- `crates/fastrag/src/corpus.rs` contains the shared retrieval ops used by CLI, HTTP, and MCP search
+- `crates/fastrag-embed/` provides embedding models and test doubles
+- `crates/fastrag-index/` provides the persisted vector index
 - `crates/fastrag-mcp/` is the MCP server crate (gated behind `mcp` feature flag)
+- `fastrag-cli` enables retrieval by default and also exposes an HTTP query server
 - Feature flags gate each parser crate (default: all enabled)
 - Test fixtures live in `tests/fixtures/`
 

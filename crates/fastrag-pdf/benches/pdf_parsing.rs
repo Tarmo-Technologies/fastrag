@@ -1,14 +1,20 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use fastrag_core::{ElementKind, FileFormat, Parser, SourceInfo};
+use fastrag_core::{FileFormat, Parser, SourceInfo};
 use fastrag_pdf::PdfParser;
+
+#[cfg(any(feature = "images", feature = "table-detect"))]
+use fastrag_core::ElementKind;
 
 // --- fixture bytes loaded at compile time ---
 static SAMPLE_PDF: &[u8] = include_bytes!("../../../tests/fixtures/sample.pdf");
+#[cfg(feature = "table-detect")]
 static SAMPLE_TABLE: &[u8] = include_bytes!("../../../tests/fixtures/sample_table.pdf");
+#[cfg(feature = "images")]
 static SAMPLE_IMAGES: &[u8] = include_bytes!("../../../tests/fixtures/sample_images.pdf");
 static COMPLEX_TABLE: &[u8] = include_bytes!("../../../tests/fixtures/complex_table.pdf");
 static MIXED_CONTENT: &[u8] = include_bytes!("../../../tests/fixtures/mixed_content.pdf");
 static LARGE_TABLES: &[u8] = include_bytes!("../../../tests/fixtures/large_tables.pdf");
+#[cfg(feature = "images")]
 static SCANNED_PDF: &[u8] = include_bytes!("../../../tests/fixtures/sample_scanned.pdf");
 
 fn source() -> SourceInfo {

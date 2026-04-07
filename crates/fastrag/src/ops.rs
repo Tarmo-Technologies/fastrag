@@ -7,6 +7,11 @@ use crate::{
     ChunkingStrategy, ContextInjection, Document, Element, FastRagError, FileFormat, OutputFormat,
 };
 
+#[cfg(feature = "retrieval")]
+pub use crate::corpus::{
+    CorpusError, CorpusIndexStats, CorpusInfo, SearchHitDto, corpus_info, index_path, query_corpus,
+};
+
 /// Result of parsing a single file.
 #[derive(Debug, Serialize)]
 pub struct ParseResult {

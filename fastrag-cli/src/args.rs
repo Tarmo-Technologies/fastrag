@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -70,6 +72,92 @@ pub enum Command {
     /// Start MCP server for AI assistant integration
     #[cfg(feature = "mcp")]
     Serve,
+
+    /// Index a corpus of files for semantic search
+    #[cfg(feature = "retrieval")]
+    Index {
+        /// File or directory to index
+        input: PathBuf,
+
+        /// Corpus directory used for persistence
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Chunking strategy (none, basic, by-title, recursive, semantic)
+        #[arg(long, default_value = "basic")]
+        chunk_strategy: ChunkStrategyArg,
+
+        /// Maximum characters per chunk
+        #[arg(long, default_value_t = 1000)]
+        chunk_size: usize,
+
+        /// Number of overlapping characters between consecutive chunks
+        #[arg(long, default_value_t = 0)]
+        chunk_overlap: usize,
+
+        /// Comma-separated list of separators for recursive strategy
+        #[arg(long)]
+        chunk_separators: Option<String>,
+
+        /// Similarity threshold for semantic chunking (0.0 to 1.0)
+        #[arg(long)]
+        similarity_threshold: Option<f32>,
+
+        /// Percentile threshold for semantic chunking (0.0 to 100.0)
+        #[arg(long)]
+        percentile_threshold: Option<f32>,
+
+        /// Optional local model path
+        #[arg(long)]
+        model_path: Option<PathBuf>,
+    },
+
+    /// Query an indexed corpus
+    #[cfg(feature = "retrieval")]
+    Query {
+        /// Search query
+        query: String,
+
+        /// Corpus directory used for persistence
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Number of results to return
+        #[arg(long, default_value_t = 5)]
+        top_k: usize,
+
+        /// Output format
+        #[arg(short, long, default_value = "json")]
+        format: OutputFormatArg,
+
+        /// Optional local model path
+        #[arg(long)]
+        model_path: Option<PathBuf>,
+    },
+
+    /// Show corpus metadata
+    #[cfg(feature = "retrieval")]
+    CorpusInfo {
+        /// Corpus directory used for persistence
+        #[arg(long)]
+        corpus: PathBuf,
+    },
+
+    /// Start HTTP retrieval server
+    #[cfg(feature = "retrieval")]
+    ServeHttp {
+        /// Corpus directory used for persistence
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// Port to bind
+        #[arg(long, default_value_t = 8081)]
+        port: u16,
+
+        /// Optional local model path
+        #[arg(long)]
+        model_path: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, ValueEnum)]

@@ -1,3 +1,5 @@
+#[cfg(feature = "retrieval")]
+pub mod corpus;
 pub mod ops;
 pub mod registry;
 
@@ -11,8 +13,15 @@ pub use fastrag_csv::CsvParser;
 pub use fastrag_docx::DocxParser;
 #[cfg(feature = "email")]
 pub use fastrag_email::EmailParser;
+#[cfg(feature = "embedding")]
+pub use fastrag_embed::{BgeSmallEmbedder, EmbedError as EmbedderError, Embedder};
 #[cfg(feature = "html")]
 pub use fastrag_html::HtmlParser;
+#[cfg(feature = "index")]
+pub use fastrag_index::{
+    CorpusManifest, HnswIndex, IndexEntry, IndexError, ManifestChunkingStrategy, SearchHit,
+    VectorIndex,
+};
 #[cfg(feature = "markdown")]
 pub use fastrag_markdown::MarkdownParser;
 #[cfg(feature = "pdf")]

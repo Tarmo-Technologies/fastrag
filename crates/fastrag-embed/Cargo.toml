@@ -1,0 +1,24 @@
+[package]
+name = "fastrag-embed"
+description = "CPU embedding inference for FastRAG (BGE-small-en-v1.5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+
+# ML / model loading
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
+tokenizers = "0.22.2"
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
+dirs = "6.0.0"
+serde_json = "1"
+
+[features]
+# Exposes a deterministic MockEmbedder for downstream integration tests.
+test-utils = []

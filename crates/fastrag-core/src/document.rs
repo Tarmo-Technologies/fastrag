@@ -509,10 +509,9 @@ mod tests {
         doc.build_hierarchy();
         doc.associate_captions();
         assert!(
-            doc.elements[0]
+            !doc.elements[0]
                 .attributes
-                .get("associated_caption_id")
-                .is_none()
+                .contains_key("associated_caption_id")
         );
     }
 

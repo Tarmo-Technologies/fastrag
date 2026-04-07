@@ -105,9 +105,169 @@ async fn main() {
                 println!("  - {format}");
             }
         }
+        #[cfg(feature = "retrieval")]
+        Command::Index {
+            input,
+            corpus,
+            chunk_strategy,
+            chunk_size,
+            chunk_overlap,
+            chunk_separators,
+            similarity_threshold,
+            percentile_threshold,
+            model_path,
+        } => {
+            let chunking = chunking_from_args(
+                chunk_strategy,
+                chunk_size,
+                chunk_overlap,
+                chunk_separators,
+                similarity_threshold,
+                percentile_threshold,
+            );
+            let embedder =
+                fastrag_cli::embed_loader::load_embedder(model_path).unwrap_or_else(|e| {
+                    eprintln!("Error loading embedder: {e}");
+                    std::process::exit(1);
+                });
+            match ops::index_path(&input, &corpus, &chunking, embedder.as_ref()) {
+                Ok(stats) => {
+                    println!("{}", serde_json::to_string_pretty(&stats).unwrap());
+                }
+                Err(e) => {
+                    eprintln!("Error indexing {}: {e}", input.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        #[cfg(feature = "retrieval")]
+        Command::Query {
+            query,
+            corpus,
+            top_k,
+            format,
+            model_path,
+        } => {
+            let embedder =
+                fastrag_cli::embed_loader::load_embedder(model_path).unwrap_or_else(|e| {
+                    eprintln!("Error loading embedder: {e}");
+                    std::process::exit(1);
+                });
+            match ops::query_corpus(&corpus, &query, top_k, embedder.as_ref()) {
+                Ok(hits) => print_query_results(&hits, format),
+                Err(e) => {
+                    eprintln!("Error querying corpus {}: {e}", corpus.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        #[cfg(feature = "retrieval")]
+        Command::CorpusInfo { corpus } => match ops::corpus_info(&corpus) {
+            Ok(info) => println!("{}", serde_json::to_string_pretty(&info).unwrap()),
+            Err(e) => {
+                eprintln!("Error reading corpus {}: {e}", corpus.display());
+                std::process::exit(1);
+            }
+        },
+        #[cfg(feature = "retrieval")]
+        Command::ServeHttp {
+            corpus,
+            port,
+            model_path,
+        } => {
+            if let Err(e) = fastrag_cli::http::serve_http(corpus, port, model_path).await {
+                eprintln!("Error starting HTTP server: {e}");
+                std::process::exit(1);
+            }
+        }
         #[cfg(feature = "mcp")]
         Command::Serve => {
             fastrag_mcp::serve_stdio().await.unwrap();
+        }
+    }
+}
+
+#[cfg(feature = "retrieval")]
+fn chunking_from_args(
+    chunk_strategy: ChunkStrategyArg,
+    chunk_size: usize,
+    chunk_overlap: usize,
+    chunk_separators: Option<String>,
+    similarity_threshold: Option<f32>,
+    percentile_threshold: Option<f32>,
+) -> ChunkingStrategy {
+    match chunk_strategy {
+        ChunkStrategyArg::None | ChunkStrategyArg::Basic => ChunkingStrategy::Basic {
+            max_characters: chunk_size,
+            overlap: chunk_overlap,
+        },
+        ChunkStrategyArg::ByTitle => ChunkingStrategy::ByTitle {
+            max_characters: chunk_size,
+            overlap: chunk_overlap,
+        },
+        ChunkStrategyArg::Recursive => ChunkingStrategy::RecursiveCharacter {
+            max_characters: chunk_size,
+            overlap: chunk_overlap,
+            separators: chunk_separators
+                .map(|s| {
+                    s.split(',')
+                        .map(|sep| sep.replace("\\n", "\n").replace("\\t", "\t"))
+                        .collect()
+                })
+                .unwrap_or_else(fastrag::default_separators),
+        },
+        ChunkStrategyArg::Semantic => ChunkingStrategy::Semantic {
+            max_characters: chunk_size,
+            similarity_threshold,
+            percentile_threshold,
+        },
+    }
+}
+
+#[cfg(feature = "retrieval")]
+fn print_query_results(hits: &[fastrag::SearchHit], format: OutputFormatArg) {
+    let dtos: Vec<fastrag::corpus::SearchHitDto> = hits.iter().cloned().map(Into::into).collect();
+    match format {
+        OutputFormatArg::Json => println!("{}", serde_json::to_string_pretty(&dtos).unwrap()),
+        OutputFormatArg::Jsonl => {
+            for dto in dtos {
+                println!("{}", serde_json::to_string(&dto).unwrap());
+            }
+        }
+        OutputFormatArg::Text => {
+            for dto in dtos {
+                println!(
+                    "[{:.4}] {}#{}: {}",
+                    dto.score,
+                    dto.source_path.display(),
+                    dto.chunk_index,
+                    dto.chunk_text
+                );
+            }
+        }
+        OutputFormatArg::Markdown => {
+            for dto in dtos {
+                println!(
+                    "- **{:.4}** `{}` #{}: {}",
+                    dto.score,
+                    dto.source_path.display(),
+                    dto.chunk_index,
+                    dto.chunk_text
+                );
+            }
+        }
+        OutputFormatArg::Html => {
+            println!("<ul>");
+            for dto in dtos {
+                println!(
+                    "<li><strong>{:.4}</strong> {}#{}: {}</li>",
+                    dto.score,
+                    dto.source_path.display(),
+                    dto.chunk_index,
+                    dto.chunk_text
+                );
+            }
+            println!("</ul>");
         }
     }
 }

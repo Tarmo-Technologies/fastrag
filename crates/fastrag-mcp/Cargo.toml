@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 fastrag.workspace = true
+fastrag-embed = { workspace = true, optional = true }
 rmcp = { version = "1.2", features = ["server", "transport-io"] }
 schemars = "0.8"
 serde.workspace = true
@@ -16,3 +17,7 @@ tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[features]
+default = []
+mcp-search = ["fastrag/retrieval", "dep:fastrag-embed"]

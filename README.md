@@ -13,6 +13,7 @@ FastRAG is a Rust-based, single-binary document parser that replaces Python's `u
 - **Language detection** — document-level and per-element language identification
 - **Parallel processing** — batch parse entire directories with configurable workers
 - **PDF intelligence** — optional table detection, image extraction, form field extraction, footnote extraction, multi-column reading order, and OCR for scanned pages
+- **Corpus retrieval** — semantic indexing, corpus queries, metadata summaries, and an HTTP query server
 - **Footnote extraction** — detects footnotes/endnotes in HTML documents and in PDF pages
 - **Multi-column PDF layout** — reorders text from multi-column PDF layouts into correct left-to-right reading order (feature flag: `pdf-column-detect`)
 - **Streaming output** — `--stream` flag emits elements incrementally as JSONL for low-latency pipelines
@@ -55,7 +56,7 @@ fastrag parse ./documents/ --output ./parsed/ -j 8
 fastrag formats
 ```
 
-### Library
+### Cargo.toml
 
 ```rust
 use fastrag::parse;
@@ -192,6 +193,40 @@ fastrag parse document.pdf --chunk-strategy recursive --chunk-size 500 --chunk-s
 fastrag parse document.pdf --chunk-strategy semantic --chunk-size 1000 --similarity-threshold 0.3
 ```
 
+## Corpus Retrieval
+
+FastRAG can build and query a persisted semantic corpus when the `retrieval` feature is enabled.
+
+### CLI
+
+```bash
+# Index a file or directory into a corpus directory
+fastrag index ./documents --corpus ./corpus
+
+# Query the indexed corpus
+fastrag query "invoice payment terms" --corpus ./corpus --top-k 5
+
+# Show corpus metadata
+fastrag corpus-info --corpus ./corpus
+
+# Start the HTTP query server
+fastrag serve-http --corpus ./corpus --port 8081
+```
+
+The CLI accepts an optional local model path with `--model-path`. If omitted, FastRAG loads the default BGE-small-en-v1.5 embedder and caches it under `dirs::cache_dir()/fastrag/models/bge-small-en-v1.5`.
+
+### Library
+
+Enable retrieval from `Cargo.toml`:
+
+```toml
+[dependencies]
+fastrag = { version = "0.1", features = ["retrieval"] }
+```
+
+Retrieval uses the shared `ChunkingStrategy` API, persists the corpus under `manifest.json`, `index.bin`, and `entries.bin`, and returns deterministic search hits sorted by score.
+The MCP server exposes the same search capability as `search_corpus` when built with the `mcp-search` feature.
+
 ### Library
 
 ```rust
@@ -233,6 +268,9 @@ FastRAG uses a workspace of small, focused crates:
 - **`fastrag-pdf`**, **`fastrag-html`**, etc. — Format-specific parsers
 - **`fastrag`** — Facade library with `ParserRegistry` and auto-detection
 - **`fastrag-cli`** — Command-line interface
+- **`fastrag-embed`** — BGE-small embedding implementation and test mock
+- **`fastrag-index`** — HNSW corpus index and persistence
+- **`fastrag-mcp`** — MCP server for AI assistant integration
 
 Each parser is feature-gated, so you only compile what you need.
 
