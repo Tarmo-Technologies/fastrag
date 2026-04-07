@@ -1,0 +1,15 @@
+[package]
+name = "fastrag-rerank"
+description = "Reranker trait and implementations for FastRAG retrieval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fastrag-index.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+test-utils = []

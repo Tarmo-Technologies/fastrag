@@ -35,6 +35,9 @@ pub enum CorpusError {
     EmbeddingOutputMismatch { expected: usize, got: usize },
     #[error("embedder returned no vectors")]
     EmptyEmbeddingOutput,
+    #[cfg(feature = "rerank")]
+    #[error("reranker error: {0}")]
+    Rerank(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -175,6 +178,30 @@ pub fn query_corpus(
     let vector = vectors.pop().ok_or(CorpusError::EmptyEmbeddingOutput)?;
     let hits = index.query(&vector, top_k)?;
     Ok(hits)
+}
+
+/// Two-stage retrieval: fetch `top_k * over_fetch` hits from HNSW, rerank with
+/// the supplied cross-encoder, and truncate to `top_k`.
+///
+/// `over_fetch` must be ≥ 1. A typical value is 10 — the reranker only sees
+/// candidates HNSW already surfaced, so a larger fan-out gives the cross-encoder
+/// more room to reorder at the cost of additional cross-encoder calls.
+#[cfg(feature = "rerank")]
+pub fn query_corpus_reranked(
+    corpus_dir: &Path,
+    query: &str,
+    top_k: usize,
+    over_fetch: usize,
+    embedder: &dyn Embedder,
+    reranker: &dyn fastrag_rerank::Reranker,
+) -> Result<Vec<SearchHit>, CorpusError> {
+    let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
+    let first_stage = query_corpus(corpus_dir, query, fan_out, embedder)?;
+    let mut reranked = reranker
+        .rerank(query, first_stage)
+        .map_err(|e| CorpusError::Rerank(e.to_string()))?;
+    reranked.truncate(top_k);
+    Ok(reranked)
 }
 
 pub fn corpus_info(corpus_dir: &Path) -> Result<CorpusInfo, CorpusError> {

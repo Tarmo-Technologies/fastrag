@@ -24,6 +24,7 @@ fastrag-rtf = { workspace = true, optional = true }
 fastrag-email = { workspace = true, optional = true }
 fastrag-embed = { workspace = true, optional = true }
 fastrag-index = { workspace = true, optional = true }
+fastrag-rerank = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -56,3 +57,4 @@ language-detection = ["fastrag-core/language-detection"]
 embedding = ["dep:fastrag-embed"]
 index = ["dep:fastrag-index"]
 retrieval = ["embedding", "index"]
+rerank = ["retrieval", "dep:fastrag-rerank"]

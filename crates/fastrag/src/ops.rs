@@ -7,6 +7,8 @@ use crate::{
     ChunkingStrategy, ContextInjection, Document, Element, FastRagError, FileFormat, OutputFormat,
 };
 
+#[cfg(feature = "rerank")]
+pub use crate::corpus::query_corpus_reranked;
 #[cfg(feature = "retrieval")]
 pub use crate::corpus::{
     CorpusError, CorpusIndexStats, CorpusInfo, SearchHitDto, corpus_info, index_path, query_corpus,

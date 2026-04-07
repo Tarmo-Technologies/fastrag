@@ -28,6 +28,8 @@ pub use fastrag_markdown::MarkdownParser;
 pub use fastrag_pdf::PdfParser;
 #[cfg(feature = "pptx")]
 pub use fastrag_pptx::PptxParser;
+#[cfg(feature = "rerank")]
+pub use fastrag_rerank::{RerankError, Reranker};
 #[cfg(feature = "rtf")]
 pub use fastrag_rtf::RtfParser;
 #[cfg(feature = "text")]
