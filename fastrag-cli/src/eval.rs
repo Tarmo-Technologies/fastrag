@@ -14,6 +14,7 @@ pub async fn run_eval(
     top_k: usize,
     chunking: EvalChunkingArg,
     chunk_size: usize,
+    chunk_overlap: usize,
     max_rss_mb: Option<u64>,
     max_docs: Option<usize>,
     max_queries: Option<usize>,
@@ -49,11 +50,16 @@ pub async fn run_eval(
     let chunking = match chunking {
         EvalChunkingArg::Basic => fastrag::ChunkingStrategy::Basic {
             max_characters: chunk_size,
-            overlap: 0,
+            overlap: chunk_overlap,
         },
         EvalChunkingArg::ByTitle => fastrag::ChunkingStrategy::ByTitle {
             max_characters: chunk_size,
-            overlap: 0,
+            overlap: chunk_overlap,
+        },
+        EvalChunkingArg::Recursive => fastrag::ChunkingStrategy::RecursiveCharacter {
+            max_characters: chunk_size,
+            overlap: chunk_overlap,
+            separators: fastrag::default_separators(),
         },
     };
 

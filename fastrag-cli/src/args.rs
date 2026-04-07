@@ -178,6 +178,10 @@ pub enum Command {
         #[arg(long, default_value_t = 1000)]
         chunk_size: usize,
 
+        /// Chunk overlap in characters
+        #[arg(long, default_value_t = 0)]
+        chunk_overlap: usize,
+
         /// Fail the run if peak RSS exceeds this many MB (off by default)
         #[arg(long)]
         max_rss_mb: Option<u64>,
@@ -238,6 +242,7 @@ pub enum EvalEmbedderArg {
 pub enum EvalChunkingArg {
     Basic,
     ByTitle,
+    Recursive,
 }
 
 #[cfg(feature = "eval")]
