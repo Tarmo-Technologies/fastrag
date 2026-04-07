@@ -143,6 +143,34 @@ pub enum Command {
         corpus: PathBuf,
     },
 
+    /// Evaluate a retrieval setup on a BEIR-compatible dataset
+    #[cfg(feature = "eval")]
+    Eval {
+        /// Dataset JSON file
+        #[arg(long)]
+        dataset: PathBuf,
+
+        /// JSON report output path
+        #[arg(long)]
+        report: PathBuf,
+
+        /// Embedder to use
+        #[arg(long, default_value = "mock")]
+        embedder: EvalEmbedderArg,
+
+        /// Number of results to retrieve per query
+        #[arg(long, default_value_t = 10)]
+        top_k: usize,
+
+        /// Chunking strategy
+        #[arg(long, default_value = "basic")]
+        chunking: EvalChunkingArg,
+
+        /// Maximum characters per chunk
+        #[arg(long, default_value_t = 1000)]
+        chunk_size: usize,
+    },
+
     /// Start HTTP retrieval server
     #[cfg(feature = "retrieval")]
     ServeHttp {
@@ -176,4 +204,18 @@ pub enum ChunkStrategyArg {
     ByTitle,
     Recursive,
     Semantic,
+}
+
+#[cfg(feature = "eval")]
+#[derive(Clone, ValueEnum)]
+pub enum EvalEmbedderArg {
+    Mock,
+    BgeSmall,
+}
+
+#[cfg(feature = "eval")]
+#[derive(Clone, ValueEnum)]
+pub enum EvalChunkingArg {
+    Basic,
+    ByTitle,
 }

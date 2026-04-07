@@ -1,4 +1,6 @@
 mod args;
+#[cfg(feature = "eval")]
+mod eval;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -169,6 +171,22 @@ async fn main() {
                 std::process::exit(1);
             }
         },
+        #[cfg(feature = "eval")]
+        Command::Eval {
+            dataset,
+            report,
+            embedder,
+            top_k,
+            chunking,
+            chunk_size,
+        } => {
+            if let Err(e) =
+                eval::run_eval(dataset, report, embedder, top_k, chunking, chunk_size).await
+            {
+                eprintln!("Error running eval: {e}");
+                std::process::exit(1);
+            }
+        }
         #[cfg(feature = "retrieval")]
         Command::ServeHttp {
             corpus,

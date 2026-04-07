@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "name": "tiny-synthetic",
+  "documents": [
+    { "id": "doc-1", "title": "alpha", "text": "alpha protocol auth token rotation" },
+    { "id": "doc-2", "title": "beta", "text": "beta protocol session cookie hardening" },
+    { "id": "doc-3", "title": "gamma", "text": "gamma parser memory leak review" },
+    { "id": "doc-4", "title": "delta", "text": "delta sql injection remediation" },
+    { "id": "doc-5", "title": "epsilon", "text": "epsilon xss sanitization checklist" },
+    { "id": "doc-6", "title": "zeta", "text": "zeta dependency pinning note" },
+    { "id": "doc-7", "title": "eta", "text": "eta logging and telemetry guidance" },
+    { "id": "doc-8", "title": "theta", "text": "theta backup restore validation" },
+    { "id": "doc-9", "title": "iota", "text": "iota rust async runtime tuning" },
+    { "id": "doc-10", "title": "kappa", "text": "kappa file upload validation" }
+  ],
+  "queries": [
+    { "id": "q-1", "text": "alpha protocol auth token rotation" },
+    { "id": "q-2", "text": "beta protocol session cookie hardening" },
+    { "id": "q-3", "text": "gamma parser memory leak review" },
+    { "id": "q-4", "text": "delta sql injection remediation" },
+    { "id": "q-5", "text": "epsilon xss sanitization checklist" }
+  ],
+  "qrels": [
+    { "query_id": "q-1", "doc_id": "doc-1", "relevance": 2 },
+    { "query_id": "q-2", "doc_id": "doc-2", "relevance": 2 },
+    { "query_id": "q-3", "doc_id": "doc-3", "relevance": 2 },
+    { "query_id": "q-4", "doc_id": "doc-4", "relevance": 2 },
+    { "query_id": "q-5", "doc_id": "doc-5", "relevance": 2 }
+  ]
+}
