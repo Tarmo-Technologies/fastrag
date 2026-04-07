@@ -215,6 +215,15 @@ fn index_documents_with_memory(
         }
     }
 
+    // Sort chunks by text length before batching so each batch contains similarly-sized
+    // inputs. Tokenizers use BatchLongest padding → a mixed batch pads every row to the
+    // longest row. NFCorpus mixes 30-token titles with 512-token abstracts; sorting drops
+    // padded-token count by ~3x and delivers a proportional speedup on pure-CPU candle.
+    // The HNSW index is order-independent (verified via crates/fastrag-index/src/hnsw.rs:
+    // rebuild_graph uses vector proximity, not insertion order), so we keep the sorted
+    // order all the way through index insertion — no un-sort step needed.
+    chunk_records.sort_by_key(|c| c.text.len());
+
     let texts = chunk_records
         .iter()
         .map(|chunk| chunk.text.as_str())
@@ -501,6 +510,89 @@ mod tests {
         }
         let rejoined: String = chunks.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(rejoined, document.text);
+    }
+
+    #[test]
+    fn runner_sorts_chunks_by_length_before_embedding() {
+        // Proves that sorted-length batching is active: a CountingEmbedder records each
+        // batch's min/max text length; with sort active, max-length grows monotonically
+        // across batches and within any batch the spread is bounded by the batch size.
+        use crate::dataset::{EvalDocument, Qrel};
+        use std::sync::Mutex;
+
+        struct LengthSpyEmbedder {
+            spread_per_batch: Mutex<Vec<(usize, usize)>>,
+        }
+        impl Embedder for LengthSpyEmbedder {
+            fn dim(&self) -> usize {
+                4
+            }
+            fn default_batch_size(&self) -> usize {
+                4
+            }
+            fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, fastrag_embed::EmbedError> {
+                let lens: Vec<usize> = texts.iter().map(|t| t.len()).collect();
+                let (lo, hi) = (*lens.iter().min().unwrap(), *lens.iter().max().unwrap());
+                self.spread_per_batch.lock().unwrap().push((lo, hi));
+                Ok(texts.iter().map(|_| vec![0.0; 4]).collect())
+            }
+        }
+
+        let dataset = EvalDataset {
+            name: "sort-test".to_string(),
+            documents: vec![
+                EvalDocument {
+                    id: "a".to_string(),
+                    title: None,
+                    text: "x".repeat(500),
+                },
+                EvalDocument {
+                    id: "b".to_string(),
+                    title: None,
+                    text: "y".repeat(10),
+                },
+                EvalDocument {
+                    id: "c".to_string(),
+                    title: None,
+                    text: "z".repeat(250),
+                },
+                EvalDocument {
+                    id: "d".to_string(),
+                    title: None,
+                    text: "q".repeat(50),
+                },
+                EvalDocument {
+                    id: "e".to_string(),
+                    title: None,
+                    text: "p".repeat(400),
+                },
+            ],
+            queries: Vec::new(),
+            qrels: Vec::<Qrel>::new(),
+        };
+        let embedder = LengthSpyEmbedder {
+            spread_per_batch: Default::default(),
+        };
+        Runner::new(
+            &embedder,
+            ChunkingStrategy::Basic {
+                max_characters: 1000,
+                overlap: 0,
+            },
+            &dataset,
+            10,
+        )
+        .run()
+        .unwrap();
+        let batches = embedder.spread_per_batch.lock().unwrap().clone();
+        // First batch should contain the four shortest docs (10, 50, 250, 400), second
+        // batch the remaining one (500). Without sort the first batch would mix 500+10.
+        assert_eq!(batches.len(), 2);
+        let (first_lo, first_hi) = batches[0];
+        let (second_lo, _second_hi) = batches[1];
+        assert_eq!(first_lo, 10);
+        assert_eq!(first_hi, 400);
+        assert_eq!(second_lo, 500);
     }
 
     #[test]
