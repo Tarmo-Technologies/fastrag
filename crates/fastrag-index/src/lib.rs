@@ -7,7 +7,7 @@ mod manifest;
 pub use entry::{IndexEntry, SearchHit};
 pub use error::{IndexError, IndexResult};
 pub use hnsw::HnswIndex;
-pub use manifest::{CorpusManifest, ManifestChunkingStrategy};
+pub use manifest::{CorpusManifest, FileEntry, ManifestChunkingStrategy, RootEntry};
 
 pub use fastrag_core::ElementKind;
 

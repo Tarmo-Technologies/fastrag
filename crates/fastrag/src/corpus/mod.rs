@@ -15,6 +15,8 @@ use crate::Embedder;
 #[cfg(feature = "index")]
 use crate::{CorpusManifest, ManifestChunkingStrategy};
 
+pub mod incremental;
+
 #[derive(Debug, Error)]
 pub enum CorpusError {
     #[error("I/O error: {0}")]
