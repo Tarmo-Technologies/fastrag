@@ -227,6 +227,8 @@ fastrag = { version = "0.1", features = ["retrieval"] }
 Retrieval uses the shared `ChunkingStrategy` API, persists the corpus under `manifest.json`, `index.bin`, and `entries.bin`, and returns deterministic search hits sorted by score.
 The MCP server exposes the same search capability as `search_corpus` when built with the `mcp-search` feature.
 
+Quality, latency, and footprint baselines for the retrieval pipeline are tracked in [`docs/eval-baselines.md`](docs/eval-baselines.md). Regenerate them with `scripts/run-eval.sh`.
+
 ### Library
 
 ```rust

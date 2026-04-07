@@ -113,6 +113,9 @@ impl<'a> Runner<'a> {
             },
             build_time_ms,
             run_at_unix: current_unix_seconds(),
+            top_k: self.top_k,
+            git_rev: EvalReport::current_git_rev(),
+            fastrag_version: EvalReport::current_fastrag_version(),
         })
     }
 
@@ -216,11 +219,16 @@ fn index_documents_with_memory(
         .iter()
         .map(|chunk| chunk.text.as_str())
         .collect::<Vec<_>>();
-    let vectors = if texts.is_empty() {
-        Vec::new()
-    } else {
-        embedder.embed(&texts)?
-    };
+    // Embedders like BGE materialize a (batch, seq, hidden) tensor, so embedding the
+    // entire corpus in one shot blows RAM on real BEIR datasets. Delegate batching to the
+    // Embedder trait so each model can pick its own safe size.
+    let batch = embedder.default_batch_size();
+    let mut vectors = Vec::with_capacity(texts.len());
+    for slice in texts.chunks(batch) {
+        let batch_vectors = embedder.embed(slice)?;
+        vectors.extend(batch_vectors);
+        *memory_peak = (*memory_peak).max(sample_current_rss_bytes());
+    }
     if vectors.len() != chunk_records.len() {
         return Err(EvalError::MalformedDataset(format!(
             "embedder returned {} vectors for {} chunks",
@@ -281,7 +289,8 @@ fn split_text(
         document.text.clone()
     };
 
-    if base_text.len() <= max_characters {
+    let chars: Vec<char> = base_text.chars().collect();
+    if chars.len() <= max_characters {
         chunks.push(ChunkRecord {
             doc_id: document.id.clone(),
             title: document.title.clone(),
@@ -293,9 +302,9 @@ fn split_text(
 
     let mut start = 0usize;
     let mut chunk_index = 0usize;
-    while start < base_text.len() {
-        let end = (start + max_characters).min(base_text.len());
-        let text = base_text[start..end].to_string();
+    while start < chars.len() {
+        let end = (start + max_characters).min(chars.len());
+        let text: String = chars[start..end].iter().collect();
         chunks.push(ChunkRecord {
             doc_id: document.id.clone(),
             title: document.title.clone(),
@@ -472,6 +481,26 @@ mod tests {
         .run()
         .unwrap();
         assert_eq!(a.metrics, b.metrics);
+    }
+
+    #[test]
+    fn split_text_handles_multibyte_chars() {
+        // Pre-#25 the chunker sliced on byte indices and panicked on multibyte UTF-8
+        // (e.g. NFCorpus contains the U+2009 thin-space). Splitting must always land on
+        // a char boundary.
+        let document = EvalDocument {
+            id: "doc1".to_string(),
+            title: None,
+            text: "a\u{2009}".repeat(600), // 600 multibyte units, well over 1000 bytes
+        };
+        let chunks = split_text(&document, 1000, false);
+        assert!(chunks.len() >= 2);
+        for chunk in &chunks {
+            assert!(chunk.text.is_char_boundary(0));
+            assert!(chunk.text.is_char_boundary(chunk.text.len()));
+        }
+        let rejoined: String = chunks.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(rejoined, document.text);
     }
 
     #[test]

@@ -174,14 +174,29 @@ async fn main() {
         #[cfg(feature = "eval")]
         Command::Eval {
             dataset,
+            dataset_name,
             report,
             embedder,
             top_k,
             chunking,
             chunk_size,
+            max_rss_mb,
+            max_docs,
+            max_queries,
         } => {
-            if let Err(e) =
-                eval::run_eval(dataset, report, embedder, top_k, chunking, chunk_size).await
+            if let Err(e) = eval::run_eval(
+                dataset,
+                dataset_name,
+                report,
+                embedder,
+                top_k,
+                chunking,
+                chunk_size,
+                max_rss_mb,
+                max_docs,
+                max_queries,
+            )
+            .await
             {
                 eprintln!("Error running eval: {e}");
                 std::process::exit(1);

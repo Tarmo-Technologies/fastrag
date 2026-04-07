@@ -146,9 +146,17 @@ pub enum Command {
     /// Evaluate a retrieval setup on a BEIR-compatible dataset
     #[cfg(feature = "eval")]
     Eval {
-        /// Dataset JSON file
-        #[arg(long)]
-        dataset: PathBuf,
+        /// Dataset JSON file (mutually exclusive with --dataset-name)
+        #[arg(
+            long,
+            conflicts_with = "dataset_name",
+            required_unless_present = "dataset_name"
+        )]
+        dataset: Option<PathBuf>,
+
+        /// Built-in dataset to load via fastrag-eval (nfcorpus, scifact, nvd, cwe)
+        #[arg(long = "dataset-name", value_enum)]
+        dataset_name: Option<EvalDatasetNameArg>,
 
         /// JSON report output path
         #[arg(long)]
@@ -169,6 +177,18 @@ pub enum Command {
         /// Maximum characters per chunk
         #[arg(long, default_value_t = 1000)]
         chunk_size: usize,
+
+        /// Fail the run if peak RSS exceeds this many MB (off by default)
+        #[arg(long)]
+        max_rss_mb: Option<u64>,
+
+        /// Cap the indexed corpus to the first N documents (sampled baselines)
+        #[arg(long)]
+        max_docs: Option<usize>,
+
+        /// Cap the eval to the first N queries (sampled baselines)
+        #[arg(long)]
+        max_queries: Option<usize>,
     },
 
     /// Start HTTP retrieval server
@@ -218,4 +238,25 @@ pub enum EvalEmbedderArg {
 pub enum EvalChunkingArg {
     Basic,
     ByTitle,
+}
+
+#[cfg(feature = "eval")]
+#[derive(Clone, Copy, ValueEnum)]
+pub enum EvalDatasetNameArg {
+    Nfcorpus,
+    Scifact,
+    Nvd,
+    Cwe,
+}
+
+#[cfg(feature = "eval")]
+impl EvalDatasetNameArg {
+    pub fn to_eval(self) -> fastrag_eval::DatasetName {
+        match self {
+            EvalDatasetNameArg::Nfcorpus => fastrag_eval::DatasetName::NfCorpus,
+            EvalDatasetNameArg::Scifact => fastrag_eval::DatasetName::SciFact,
+            EvalDatasetNameArg::Nvd => fastrag_eval::DatasetName::Nvd,
+            EvalDatasetNameArg::Cwe => fastrag_eval::DatasetName::CweTop25,
+        }
+    }
 }

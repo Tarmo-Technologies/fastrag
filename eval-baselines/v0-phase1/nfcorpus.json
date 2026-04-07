@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "dataset": "nfcorpus",
+  "embedder": "BAAI/bge-small-en-v1.5",
+  "chunking": "basic(max_characters=1000, overlap=0)",
+  "metrics": {
+    "mrr@10": 0.13333333333333333,
+    "ndcg@10": 0.10890674796870665,
+    "recall@5": 0.12153846153846154,
+    "hit_rate@10": 0.18,
+    "recall@1": 0.0532051282051282,
+    "recall@20": 0.1293815987933635,
+    "recall@10": 0.12820512820512822
+  },
+  "latency": {
+    "p50_ms": 12.263,
+    "p95_ms": 26.111,
+    "p99_ms": 28.863,
+    "mean_ms": 14.605720000000002,
+    "count": 50
+  },
+  "memory": {
+    "peak_rss_bytes": 196591616,
+    "current_rss_bytes": 196591616
+  },
+  "build_time_ms": 390489,
+  "run_at_unix": 1775574634,
+  "top_k": 20,
+  "git_rev": "21f7f2db2885",
+  "fastrag_version": "0.1.0"
+}

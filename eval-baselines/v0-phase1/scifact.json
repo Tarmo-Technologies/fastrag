@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "dataset": "scifact",
+  "embedder": "BAAI/bge-small-en-v1.5",
+  "chunking": "basic(max_characters=1000, overlap=0)",
+  "metrics": {
+    "recall@1": 0.04,
+    "ndcg@10": 0.05712414374216044,
+    "recall@20": 0.08,
+    "recall@5": 0.06,
+    "hit_rate@10": 0.08,
+    "recall@10": 0.08,
+    "mrr@10": 0.05000000000000001
+  },
+  "latency": {
+    "p50_ms": 19.759,
+    "p95_ms": 46.175,
+    "p99_ms": 58.207,
+    "mean_ms": 23.761800000000004,
+    "count": 50
+  },
+  "memory": {
+    "peak_rss_bytes": 168022016,
+    "current_rss_bytes": 168022016
+  },
+  "build_time_ms": 326868,
+  "run_at_unix": 1775574962,
+  "top_k": 20,
+  "git_rev": "21f7f2db2885",
+  "fastrag_version": "0.1.0"
+}

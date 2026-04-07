@@ -123,6 +123,13 @@ impl Embedder for BgeSmallEmbedder {
         self.dim
     }
 
+    fn default_batch_size(&self) -> usize {
+        // BGE-small materializes a (batch, seq_len, hidden=384) tensor on every forward
+        // pass. 32 keeps a 512-token batch under ~25 MB of activations and lets a 3.6k-doc
+        // BEIR run finish in <1 GB peak RSS on a CPU box.
+        32
+    }
+
     fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedError> {
         if texts.is_empty() {
             return Err(EmbedError::EmptyInput);

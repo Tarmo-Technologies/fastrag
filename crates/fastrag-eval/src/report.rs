@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EvalError, EvalResult};
 
-pub const REPORT_SCHEMA_VERSION: u32 = 1;
+pub const REPORT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +36,9 @@ pub struct EvalReport {
     pub memory: MemoryStats,
     pub build_time_ms: u64,
     pub run_at_unix: u64,
+    pub top_k: usize,
+    pub git_rev: String,
+    pub fastrag_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,6 +50,18 @@ struct EvalReportFile {
 }
 
 impl EvalReport {
+    /// Git revision recorded in baseline reports. Reads `FASTRAG_GIT_REV` at run time and
+    /// falls back to `"unknown"` so reports are always self-describing.
+    pub fn current_git_rev() -> String {
+        std::env::var("FASTRAG_GIT_REV").unwrap_or_else(|_| "unknown".to_string())
+    }
+
+    /// Crate version of `fastrag-eval`. Pinned at compile time so reports record the build
+    /// they were produced with.
+    pub fn current_fastrag_version() -> String {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
     pub fn write_json(&self, path: impl AsRef<Path>) -> EvalResult<()> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -116,6 +131,9 @@ mod tests {
             },
             build_time_ms: 42,
             run_at_unix: 99,
+            top_k: 10,
+            git_rev: "deadbeef".to_string(),
+            fastrag_version: "0.0.0-test".to_string(),
         }
     }
 
@@ -133,6 +151,9 @@ mod tests {
     fn schema_version_present() {
         let report = sample_report();
         let json = serde_json::to_value(report.to_report_file()).unwrap();
-        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["top_k"], 10);
+        assert_eq!(json["git_rev"], "deadbeef");
+        assert_eq!(json["fastrag_version"], "0.0.0-test");
     }
 }

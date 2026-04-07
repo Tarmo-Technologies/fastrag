@@ -28,6 +28,9 @@ fn cli_eval_smoke() {
     assert!(report.exists());
     let json = fs::read_to_string(&report).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed["schema_version"], 1);
+    assert_eq!(parsed["schema_version"], 2);
     assert_eq!(parsed["dataset"], "tiny-synthetic");
+    assert!(parsed["top_k"].is_number());
+    assert!(parsed["git_rev"].is_string());
+    assert!(parsed["fastrag_version"].is_string());
 }
