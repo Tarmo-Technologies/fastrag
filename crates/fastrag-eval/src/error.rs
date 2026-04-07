@@ -4,6 +4,22 @@ use std::path::PathBuf;
 pub enum EvalError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("HTTP error: {0}")]
+    Http(String),
+    #[error("download checksum mismatch for {path}: expected {expected}, got {got}")]
+    ChecksumMismatch {
+        path: PathBuf,
+        expected: String,
+        got: String,
+    },
+    #[error("archive error: {0}")]
+    Archive(String),
+    #[error("XML parse error: {0}")]
+    Xml(String),
+    #[error("gzip decode error: {0}")]
+    Gzip(String),
+    #[error("cache directory is unavailable")]
+    NoCacheDir,
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("embedding error: {0}")]

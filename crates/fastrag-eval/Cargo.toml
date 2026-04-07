@@ -7,16 +7,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+dirs.workspace = true
 fastrag-core.workspace = true
 fastrag-embed.workspace = true
 fastrag-index.workspace = true
 hdrhistogram.workspace = true
+indicatif = "0.17"
 memory-stats.workspace = true
+quick-xml = "0.37"
+reqwest = { workspace = true, features = ["blocking"] }
+flate2 = "1"
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 thiserror.workspace = true
 tempfile = "3"
+zip = "2"
 
 [dev-dependencies]
 fastrag-embed = { workspace = true, features = ["test-utils"] }
-

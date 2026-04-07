@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Weakness_Catalog>
+  <Weaknesses>
+    <Weakness ID="79" Name="Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')">
+      <Description>Improper neutralization of input leads to cross-site scripting.</Description>
+      <Extended_Description>The application fails to sanitize attacker-controlled data before rendering.</Extended_Description>
+    </Weakness>
+    <Weakness ID="20" Name="Improper Input Validation">
+      <Description>Improper input validation allows unsafe values to reach critical sinks.</Description>
+      <Extended_Description>Input validation should reject malformed parameters before use.</Extended_Description>
+    </Weakness>
+    <Weakness ID="787" Name="Out-of-bounds Write">
+      <Description>Improper neutralization of array indices can lead to memory corruption.</Description>
+      <Extended_Description>Out-of-bounds writes can overwrite adjacent memory and enable code execution.</Extended_Description>
+    </Weakness>
+  </Weaknesses>
+</Weakness_Catalog>
