@@ -1,15 +1,14 @@
-mod args;
 #[cfg(feature = "eval")]
 mod eval;
 
 use std::path::Path;
 use std::sync::Arc;
 
-use args::{ChunkStrategyArg, Cli, Command, OutputFormatArg};
 use clap::Parser;
 use fastrag::ops::{self, collect_files, output_path, render_document};
 use fastrag::registry::ParserRegistry;
 use fastrag::{ChunkingStrategy, OutputFormat};
+use fastrag_cli::args::{self, ChunkStrategyArg, Cli, Command, OutputFormatArg};
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::Semaphore;
 
@@ -134,11 +133,11 @@ async fn main() {
             similarity_threshold,
             percentile_threshold,
             model_path,
-            embedder: _,
-            openai_model: _,
-            openai_base_url: _,
-            ollama_model: _,
-            ollama_url: _,
+            embedder,
+            openai_model,
+            openai_base_url,
+            ollama_model,
+            ollama_url,
             metadata,
         } => {
             let chunking = chunking_from_args(
@@ -149,11 +148,18 @@ async fn main() {
                 similarity_threshold,
                 percentile_threshold,
             );
-            let embedder =
-                fastrag_cli::embed_loader::load_embedder(model_path).unwrap_or_else(|e| {
-                    eprintln!("Error loading embedder: {e}");
-                    std::process::exit(1);
-                });
+            let opts = fastrag_cli::embed_loader::EmbedderOptions {
+                kind: embedder,
+                model_path,
+                openai_model,
+                openai_base_url,
+                ollama_model,
+                ollama_url,
+            };
+            let embedder = fastrag_cli::embed_loader::load_for_write(&opts).unwrap_or_else(|e| {
+                eprintln!("Error loading embedder: {e}");
+                std::process::exit(1);
+            });
             let base_metadata: std::collections::BTreeMap<String, String> =
                 metadata.into_iter().collect();
             match ops::index_path_with_metadata(
@@ -189,15 +195,23 @@ async fn main() {
             top_k,
             format,
             model_path,
-            embedder: _,
-            openai_model: _,
-            openai_base_url: _,
-            ollama_model: _,
-            ollama_url: _,
+            embedder,
+            openai_model,
+            openai_base_url,
+            ollama_model,
+            ollama_url,
             filter,
         } => {
+            let opts = fastrag_cli::embed_loader::EmbedderOptions {
+                kind: embedder,
+                model_path,
+                openai_model,
+                openai_base_url,
+                ollama_model,
+                ollama_url,
+            };
             let embedder =
-                fastrag_cli::embed_loader::load_embedder(model_path).unwrap_or_else(|e| {
+                fastrag_cli::embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
                     eprintln!("Error loading embedder: {e}");
                     std::process::exit(1);
                 });
@@ -271,15 +285,23 @@ async fn main() {
             corpus,
             port,
             model_path,
-            embedder: _,
-            openai_model: _,
-            openai_base_url: _,
-            ollama_model: _,
-            ollama_url: _,
+            embedder,
+            openai_model,
+            openai_base_url,
+            ollama_model,
+            ollama_url,
             token,
         } => {
             let token = token.or_else(|| std::env::var("FASTRAG_TOKEN").ok());
-            if let Err(e) = fastrag_cli::http::serve_http(corpus, port, model_path, token).await {
+            let opts = fastrag_cli::embed_loader::EmbedderOptions {
+                kind: embedder,
+                model_path,
+                openai_model,
+                openai_base_url,
+                ollama_model,
+                ollama_url,
+            };
+            if let Err(e) = fastrag_cli::http::serve_http(corpus, port, &opts, token).await {
                 eprintln!("Error starting HTTP server: {e}");
                 std::process::exit(1);
             }
