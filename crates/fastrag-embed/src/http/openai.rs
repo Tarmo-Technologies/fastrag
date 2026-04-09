@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::http::{build_client, ensure_success, send_with_retry};
-use crate::{Embedder, EmbedError, PassageText, PrefixScheme, QueryText};
+use crate::{EmbedError, Embedder, PassageText, PrefixScheme, QueryText};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -25,8 +25,8 @@ pub type OpenAiLarge = OpenAiEmbedder<3072>;
 
 impl<const DIM: usize> OpenAiEmbedder<DIM> {
     pub fn new() -> Result<Self, EmbedError> {
-        let api_key = env::var("OPENAI_API_KEY")
-            .map_err(|_| EmbedError::MissingEnv("OPENAI_API_KEY"))?;
+        let api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| EmbedError::MissingEnv("OPENAI_API_KEY"))?;
         Ok(Self {
             base_url: DEFAULT_BASE_URL.to_string(),
             api_key,

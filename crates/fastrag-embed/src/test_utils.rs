@@ -1,4 +1,4 @@
-use crate::{Embedder, EmbedError, PassageText, PrefixScheme, QueryText};
+use crate::{EmbedError, Embedder, PassageText, PrefixScheme, QueryText};
 
 /// Deterministic hash-based embedder for tests.
 ///
@@ -45,11 +45,17 @@ impl Embedder for MockEmbedder {
     const PREFIX_SCHEME: PrefixScheme = PrefixScheme::NONE;
 
     fn embed_query(&self, texts: &[QueryText]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        Ok(texts.iter().map(|t| Self::fingerprint(t.as_str())).collect())
+        Ok(texts
+            .iter()
+            .map(|t| Self::fingerprint(t.as_str()))
+            .collect())
     }
 
     fn embed_passage(&self, texts: &[PassageText]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        Ok(texts.iter().map(|t| Self::fingerprint(t.as_str())).collect())
+        Ok(texts
+            .iter()
+            .map(|t| Self::fingerprint(t.as_str()))
+            .collect())
     }
 }
 
@@ -117,8 +123,14 @@ mod tests {
             ])
             .unwrap();
         assert_eq!(batch.len(), 3);
-        assert_eq!(batch[0], e.embed_query(&[QueryText::new("one")]).unwrap()[0]);
-        assert_eq!(batch[1], e.embed_query(&[QueryText::new("two")]).unwrap()[0]);
+        assert_eq!(
+            batch[0],
+            e.embed_query(&[QueryText::new("one")]).unwrap()[0]
+        );
+        assert_eq!(
+            batch[1],
+            e.embed_query(&[QueryText::new("two")]).unwrap()[0]
+        );
         assert_eq!(
             batch[2],
             e.embed_query(&[QueryText::new("three")]).unwrap()[0]

@@ -5,7 +5,7 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
-use crate::{Embedder, EmbedError, PassageText, PrefixScheme, QueryText};
+use crate::{EmbedError, Embedder, PassageText, PrefixScheme, QueryText};
 
 const MODEL_REPO_ID: &str = "BAAI/bge-small-en-v1.5";
 const MODEL_CACHE_SUBDIR: &str = "fastrag/models/bge-small-en-v1.5";
