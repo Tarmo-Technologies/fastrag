@@ -9,15 +9,16 @@ repository.workspace = true
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
-
-# ML / model loading
-candle-core = "0.10.2"
-candle-nn = "0.10.2"
-candle-transformers = "0.10.2"
-tokenizers = "0.22.2"
-hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
-dirs = "6.0.0"
 serde_json = "1"
+
+# Legacy candle BGE backend (optional — enabled by legacy-candle feature)
+candle-core = { version = "0.10.2", optional = true }
+candle-nn = { version = "0.10.2", optional = true }
+candle-transformers = { version = "0.10.2", optional = true }
+tokenizers = { version = "0.22.2", optional = true }
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"], optional = true }
+dirs = { version = "6.0.0", optional = true }
+
 # HTTP embedders (optional)
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"], optional = true }
 
@@ -29,3 +30,11 @@ serde_json = "1"
 [features]
 test-utils = []
 http-embedders = ["dep:reqwest"]
+legacy-candle = [
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:candle-transformers",
+    "dep:tokenizers",
+    "dep:hf-hub",
+    "dep:dirs",
+]

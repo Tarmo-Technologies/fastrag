@@ -46,18 +46,21 @@ pub enum EmbedError {
     EmptyInput,
 }
 
+#[cfg(feature = "legacy-candle")]
 impl From<candle_core::Error> for EmbedError {
     fn from(value: candle_core::Error) -> Self {
         Self::Candle(value.to_string())
     }
 }
 
+#[cfg(feature = "legacy-candle")]
 impl From<tokenizers::Error> for EmbedError {
     fn from(value: tokenizers::Error) -> Self {
         Self::Tokenizer(value.to_string())
     }
 }
 
+#[cfg(feature = "legacy-candle")]
 impl From<hf_hub::api::sync::ApiError> for EmbedError {
     fn from(value: hf_hub::api::sync::ApiError) -> Self {
         Self::HfHub(value.to_string())

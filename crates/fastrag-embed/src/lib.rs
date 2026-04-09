@@ -1,3 +1,4 @@
+#[cfg(feature = "legacy-candle")]
 mod bge;
 mod error;
 
@@ -7,6 +8,7 @@ pub mod http;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
+#[cfg(feature = "legacy-candle")]
 pub use crate::bge::BgeSmallEmbedder;
 pub use crate::error::EmbedError;
 

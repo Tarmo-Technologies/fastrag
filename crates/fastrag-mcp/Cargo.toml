@@ -20,4 +20,4 @@ serde_json.workspace = true
 
 [features]
 default = []
-mcp-search = ["fastrag/retrieval", "dep:fastrag-embed"]
+mcp-search = ["fastrag/retrieval", "fastrag/legacy-candle", "dep:fastrag-embed", "fastrag-embed/legacy-candle"]
