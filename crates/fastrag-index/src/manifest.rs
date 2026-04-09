@@ -93,7 +93,10 @@ mod v3_tests {
     }
 
     fn sample_canary() -> Canary {
-        Canary { text_version: 1, vector: vec![0.0; 16] }
+        Canary {
+            text_version: 1,
+            vector: vec![0.0; 16],
+        }
     }
 
     #[test]
@@ -102,7 +105,10 @@ mod v3_tests {
             sample_identity(),
             sample_canary(),
             1,
-            ManifestChunkingStrategy::Basic { max_characters: 100, overlap: 0 },
+            ManifestChunkingStrategy::Basic {
+                max_characters: 100,
+                overlap: 0,
+            },
         );
         assert_eq!(m.version, 3);
         assert_eq!(m.identity.dim, 16);
