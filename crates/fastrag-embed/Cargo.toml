@@ -26,11 +26,20 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 wiremock = "0.6"
 tokio = { version = "1", features = ["rt", "macros"] }
 serde_json = "1"
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"], optional = true }
+
+[[bin]]
+name = "fake-llama-server"
+path = "tests/support/fake_llama_server.rs"
+required-features = ["llama-cpp"]
 
 [features]
 test-utils = []
 http-embedders = ["dep:reqwest"]
-llama-cpp = ["http-embedders"]
+llama-cpp = ["http-embedders", "dep:nix", "dep:hf-hub", "dep:dirs"]
 legacy-candle = [
     "dep:candle-core",
     "dep:candle-nn",

@@ -44,6 +44,32 @@ pub enum EmbedError {
 
     #[error("empty input")]
     EmptyInput,
+
+    #[cfg(feature = "llama-cpp")]
+    #[error("failed to spawn llama-server: {0}")]
+    LlamaServerSpawn(String),
+
+    #[cfg(feature = "llama-cpp")]
+    #[error("llama-server exited before becoming ready: status={status}")]
+    LlamaServerExitedEarly { status: String },
+
+    #[cfg(feature = "llama-cpp")]
+    #[error("llama-server /health did not become ready on port {port} within {waited:?}")]
+    LlamaServerHealthTimeout {
+        port: u16,
+        waited: std::time::Duration,
+    },
+
+    #[cfg(feature = "llama-cpp")]
+    #[error(
+        "llama-server version b{found} is below minimum b{minimum}; \
+         upgrade from https://github.com/ggml-org/llama.cpp/releases"
+    )]
+    LlamaServerVersionTooOld { found: u32, minimum: u32 },
+
+    #[cfg(feature = "llama-cpp")]
+    #[error("failed to parse llama-server --version output: {0}")]
+    LlamaServerVersionParse(String),
 }
 
 #[cfg(feature = "legacy-candle")]
@@ -60,7 +86,7 @@ impl From<tokenizers::Error> for EmbedError {
     }
 }
 
-#[cfg(feature = "legacy-candle")]
+#[cfg(any(feature = "legacy-candle", feature = "llama-cpp"))]
 impl From<hf_hub::api::sync::ApiError> for EmbedError {
     fn from(value: hf_hub::api::sync::ApiError) -> Self {
         Self::HfHub(value.to_string())
