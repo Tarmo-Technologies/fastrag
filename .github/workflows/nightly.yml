@@ -9,7 +9,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Skip the entire workflow if nothing was pushed since the last nightly run.
+  check-changes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    outputs:
+      has_changes: ${{ github.event_name == 'workflow_dispatch' || steps.check.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for commits in last 24 hours
+        id: check
+        run: |
+          if git log --since="24 hours ago" --oneline | grep -q .; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No commits in last 24h — skipping nightly."
+          fi
+
   llama-cpp-backend:
+    needs: check-changes
+    if: needs.check-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -63,6 +85,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --features retrieval,rerank-llama -- -D warnings
 
   rerank-onnx:
+    needs: check-changes
+    if: needs.check-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
