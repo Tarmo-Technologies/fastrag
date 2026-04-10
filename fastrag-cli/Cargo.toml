@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
 subtle = "2"
+dirs.workspace = true
 
 [features]
 default = ["language-detection", "mcp", "retrieval"]
@@ -38,6 +39,7 @@ retrieval = [
     "dep:fastrag-embed",
     "fastrag-embed/legacy-candle",
     "fastrag-embed/http-embedders",
+    "fastrag-embed/llama-cpp",
     "dep:axum",
 ]
 eval = ["dep:fastrag-eval", "dep:fastrag-embed", "fastrag-embed/legacy-candle", "fastrag-embed/test-utils"]

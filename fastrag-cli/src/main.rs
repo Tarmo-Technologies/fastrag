@@ -1,3 +1,4 @@
+mod doctor;
 #[cfg(feature = "eval")]
 mod eval;
 
@@ -122,6 +123,9 @@ async fn main() {
             for format in registry.supported_formats() {
                 println!("  - {format}");
             }
+        }
+        Command::Doctor => {
+            doctor::run();
         }
         #[cfg(feature = "retrieval")]
         Command::Index {

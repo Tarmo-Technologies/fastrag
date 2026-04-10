@@ -1,3 +1,4 @@
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,6 +9,7 @@ use fastrag_embed::{
         ollama::OllamaEmbedder,
         openai::{OpenAiLarge, OpenAiSmall},
     },
+    llama_cpp::{HfHubDownloader, LlamaServerConfig, Qwen3Embed600mQ8, resolve_model_path_default},
 };
 use thiserror::Error;
 
@@ -91,6 +93,8 @@ fn detect_from_model_id(existing: &str) -> Result<EmbedderKindArg, EmbedLoaderEr
         Ok(EmbedderKindArg::Ollama)
     } else if existing == BgeSmallEmbedder::MODEL_ID {
         Ok(EmbedderKindArg::Bge)
+    } else if existing == Qwen3Embed600mQ8::MODEL_ID {
+        Ok(EmbedderKindArg::Qwen3Q8)
     } else {
         Err(EmbedLoaderError::Manifest(format!(
             "unrecognized identity.model_id `{existing}`; pass --embedder explicitly"
@@ -103,6 +107,7 @@ fn kind_name(kind: EmbedderKindArg) -> &'static str {
         EmbedderKindArg::Bge => "bge",
         EmbedderKindArg::Openai => "openai",
         EmbedderKindArg::Ollama => "ollama",
+        EmbedderKindArg::Qwen3Q8 => "qwen3-q8",
     }
 }
 
@@ -137,5 +142,67 @@ fn build(kind: EmbedderKindArg, opts: &EmbedderOptions) -> Result<DynEmbedder, E
             let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
             Ok(arc)
         }
+        EmbedderKindArg::Qwen3Q8 => {
+            let binary_path = find_llama_server()?;
+            let port = free_port()?;
+            let model_path =
+                resolve_model_path_default(&Qwen3Embed600mQ8::model_source(), &HfHubDownloader)?;
+            let cfg = LlamaServerConfig {
+                binary_path,
+                port,
+                health_timeout: std::time::Duration::from_secs(120),
+                extra_args: vec![
+                    "--model".to_string(),
+                    model_path.display().to_string(),
+                    "--embedding".to_string(),
+                    "--pooling".to_string(),
+                    "mean".to_string(),
+                ],
+                skip_version_check: false,
+            };
+            let e = Qwen3Embed600mQ8::load(cfg)?;
+            let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
+            Ok(arc)
+        }
     }
+}
+
+fn find_llama_server() -> Result<PathBuf, EmbedLoaderError> {
+    if let Ok(p) = std::env::var("LLAMA_SERVER_PATH") {
+        let path = PathBuf::from(p);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+    which_llama_server().ok_or_else(|| {
+        EmbedLoaderError::Embed(
+            "llama-server not found in $PATH; install from \
+             https://github.com/ggml-org/llama.cpp/releases \
+             or set LLAMA_SERVER_PATH"
+                .into(),
+        )
+    })
+}
+
+fn which_llama_server() -> Option<PathBuf> {
+    let output = std::process::Command::new("which")
+        .arg("llama-server")
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let s = String::from_utf8_lossy(&output.stdout);
+        let path = PathBuf::from(s.trim());
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn free_port() -> Result<u16, EmbedLoaderError> {
+    let l = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| EmbedLoaderError::Embed(format!("bind ephemeral port: {e}")))?;
+    Ok(l.local_addr()
+        .map_err(|e| EmbedLoaderError::Embed(format!("local_addr: {e}")))?
+        .port())
 }

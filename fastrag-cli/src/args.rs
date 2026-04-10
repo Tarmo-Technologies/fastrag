@@ -29,6 +29,7 @@ pub enum EmbedderKindArg {
     Bge,
     Openai,
     Ollama,
+    Qwen3Q8,
 }
 
 #[derive(Parser)]
@@ -97,6 +98,9 @@ pub enum Command {
 
     /// List supported formats
     Formats,
+
+    /// Check environment for llama-server and report its version
+    Doctor,
 
     /// Start MCP server for AI assistant integration
     #[cfg(feature = "mcp")]
