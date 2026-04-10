@@ -18,6 +18,7 @@ members = [
     "crates/fastrag-index",
     "crates/fastrag-eval",
     "crates/fastrag-rerank",
+    "crates/fastrag-tantivy",
     "crates/fastrag",
     "crates/fastrag-mcp",
     "fastrag-cli",
@@ -49,6 +50,8 @@ fastrag-index = { path = "crates/fastrag-index", version = "0.1.0" }
 fastrag-eval = { path = "crates/fastrag-eval", version = "0.1.0" }
 fastrag-rerank = { path = "crates/fastrag-rerank", version = "0.1.0" }
 fastrag-mcp = { path = "crates/fastrag-mcp", version = "0.1.0" }
+fastrag-tantivy = { path = "crates/fastrag-tantivy", version = "0.1.0" }
+tantivy = "0.22"
 rayon = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

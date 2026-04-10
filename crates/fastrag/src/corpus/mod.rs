@@ -14,6 +14,8 @@ use crate::{CorpusManifest, ManifestChunkingStrategy};
 
 use fastrag_embed::DynEmbedderTrait;
 
+#[cfg(feature = "hybrid")]
+pub mod hybrid;
 pub mod incremental;
 
 #[derive(Debug, Error)]
@@ -40,6 +42,9 @@ pub enum CorpusError {
     #[cfg(feature = "rerank")]
     #[error("reranker error: {0}")]
     Rerank(String),
+    #[cfg(feature = "hybrid")]
+    #[error("tantivy error: {0}")]
+    Tantivy(#[from] fastrag_tantivy::TantivyIndexError),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,6 +165,13 @@ pub fn index_path_with_metadata(
         HnswIndex::new(m)
     };
 
+    #[cfg(feature = "hybrid")]
+    let tantivy = if fastrag_tantivy::TantivyIndex::exists(corpus_dir) {
+        Some(fastrag_tantivy::TantivyIndex::open(corpus_dir)?)
+    } else {
+        Some(fastrag_tantivy::TantivyIndex::create(corpus_dir)?)
+    };
+
     let mut manifest = index.manifest().clone();
     let plan = plan_index(&root_abs, walked, &mut manifest, &|p| {
         fastrag_index::hash::hash_file(p)
@@ -179,6 +191,12 @@ pub fn index_path_with_metadata(
     }
     let chunks_removed = ids_to_remove.len();
     index.remove_by_chunk_ids(&ids_to_remove);
+    #[cfg(feature = "hybrid")]
+    if let Some(ref tantivy) = tantivy
+        && !ids_to_remove.is_empty()
+    {
+        tantivy.delete_by_ids(&ids_to_remove)?;
+    }
 
     // Drop deleted + changed entries from manifest.files for this root (changed re-added below).
     manifest.files.retain(|f| {
@@ -265,6 +283,10 @@ pub fn index_path_with_metadata(
             .collect();
         chunks_added += entries.len();
         if !entries.is_empty() {
+            #[cfg(feature = "hybrid")]
+            if let Some(ref tantivy) = tantivy {
+                tantivy.add_entries(&entries)?;
+            }
             index.add(entries)?;
         }
 
@@ -414,6 +436,64 @@ pub fn query_corpus_reranked(
 ) -> Result<Vec<SearchHit>, CorpusError> {
     let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
     let first_stage = query_corpus_with_filter(corpus_dir, query, fan_out, embedder, filter)?;
+    let mut reranked = reranker
+        .rerank(query, first_stage)
+        .map_err(|e| CorpusError::Rerank(e.to_string()))?;
+    reranked.truncate(top_k);
+    Ok(reranked)
+}
+
+/// Hybrid BM25 + dense retrieval with RRF fusion and post-filtering.
+#[cfg(feature = "hybrid")]
+pub fn query_corpus_hybrid(
+    corpus_dir: &Path,
+    query: &str,
+    top_k: usize,
+    embedder: &dyn DynEmbedderTrait,
+    filter: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<SearchHit>, CorpusError> {
+    use fastrag_embed::QueryText;
+    let hybrid_index = hybrid::HybridIndex::load(corpus_dir, embedder)?;
+    let vector = embedder
+        .embed_query_dyn(&[QueryText::new(query)])
+        .map_err(|e| CorpusError::Embed(e.to_string()))?
+        .into_iter()
+        .next()
+        .ok_or(CorpusError::EmptyEmbeddingOutput)?;
+
+    if filter.is_empty() {
+        return hybrid_index.query_hybrid(query, &vector, top_k);
+    }
+
+    // Adaptive over-fetch + post-filter (same strategy as dense-only path)
+    for factor in [4usize, 16] {
+        let fan_out = top_k.saturating_mul(factor).max(top_k);
+        let hits = hybrid_index.query_hybrid(query, &vector, fan_out)?;
+        let filtered: Vec<SearchHit> = hits
+            .into_iter()
+            .filter(|h| h.entry.matches_filter(filter))
+            .take(top_k)
+            .collect();
+        if !filtered.is_empty() {
+            return Ok(filtered);
+        }
+    }
+    Ok(Vec::new())
+}
+
+/// Hybrid retrieval + cross-encoder reranking.
+#[cfg(all(feature = "hybrid", feature = "rerank"))]
+pub fn query_corpus_hybrid_reranked(
+    corpus_dir: &Path,
+    query: &str,
+    top_k: usize,
+    over_fetch: usize,
+    embedder: &dyn DynEmbedderTrait,
+    reranker: &dyn fastrag_rerank::Reranker,
+    filter: &std::collections::BTreeMap<String, String>,
+) -> Result<Vec<SearchHit>, CorpusError> {
+    let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
+    let first_stage = query_corpus_hybrid(corpus_dir, query, fan_out, embedder, filter)?;
     let mut reranked = reranker
         .rerank(query, first_stage)
         .map_err(|e| CorpusError::Rerank(e.to_string()))?;

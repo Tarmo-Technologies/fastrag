@@ -235,7 +235,7 @@ Enable retrieval from `Cargo.toml`:
 
 ```toml
 [dependencies]
-fastrag = { version = "0.1", features = ["retrieval"] }
+fastrag = { version = "0.1", features = ["hybrid"] }  # BM25 + dense; use "retrieval" for dense-only
 ```
 
 Retrieval uses the shared `ChunkingStrategy` API, persists the corpus under `manifest.json`, `index.bin`, and `entries.bin`, and returns deterministic search hits sorted by score.
@@ -304,6 +304,24 @@ fastrag query "payment terms" --corpus ./corpus --rerank-over-fetch 20
 The ONNX model downloads from HuggingFace Hub on first use and caches under `~/.cache/fastrag/models/gte-reranker-modernbert-base/`. The llama-cpp backend spawns a separate `llama-server` subprocess in reranking mode (`--embedding --pooling rank`).
 
 The HTTP server accepts `?rerank=off` and `?over_fetch=N` query parameters to control reranking per request.
+
+### Hybrid Retrieval
+
+Queries combine BM25 keyword search (via Tantivy) with dense vector search, fused using Reciprocal Rank Fusion (k=60). CVE/CWE identifiers in the query text are extracted and matched exactly against the Tantivy index, with exact hits prepended before fused results.
+
+Hybrid mode is on by default. Pass `--dense-only` to skip BM25 and use dense vector search only.
+
+```bash
+# Default hybrid query (BM25 + dense + RRF)
+fastrag query "CVE-2024-1234 buffer overflow" --corpus ./corpus
+
+# Dense-only mode (skip Tantivy/BM25)
+fastrag query "buffer overflow" --corpus ./corpus --dense-only
+```
+
+The HTTP server accepts `?mode=dense-only` to bypass hybrid for a single request, or start the server with `--dense-only` to disable it globally.
+
+Old corpora indexed before hybrid support load without a Tantivy index and fall back to dense-only with a warning. Re-index to enable BM25.
 
 ### Library
 
@@ -398,6 +416,7 @@ FastRAG uses a workspace of small, focused crates:
 - **`fastrag-cli`** — Command-line interface
 - **`fastrag-embed`** — Embedding backends (BGE-small, Qwen3, OpenAI, Ollama)
 - **`fastrag-index`** — HNSW corpus index and persistence
+- **`fastrag-tantivy`** — Tantivy BM25 index for hybrid retrieval
 - **`fastrag-rerank`** — Cross-encoder reranking (ONNX, llama-cpp)
 - **`fastrag-mcp`** — MCP server for AI assistant integration
 

@@ -208,6 +208,7 @@ async fn main() {
             ollama_model,
             ollama_url,
             filter,
+            dense_only,
             #[cfg(feature = "rerank")]
             rerank,
             #[cfg(feature = "rerank")]
@@ -244,7 +245,15 @@ async fn main() {
                 #[cfg(not(feature = "rerank"))]
                 let use_rerank = false;
 
-                if use_rerank {
+                #[cfg(feature = "hybrid")]
+                let use_hybrid = !dense_only;
+                #[cfg(not(feature = "hybrid"))]
+                let use_hybrid = {
+                    let _ = dense_only;
+                    false
+                };
+
+                let result = if use_rerank {
                     #[cfg(feature = "rerank")]
                     {
                         let reranker = fastrag_cli::rerank_loader::load_reranker(rerank)
@@ -252,35 +261,69 @@ async fn main() {
                                 eprintln!("Error loading reranker: {e}");
                                 std::process::exit(1);
                             });
-                        match ops::query_corpus_reranked(
+                        if use_hybrid {
+                            #[cfg(feature = "hybrid")]
+                            {
+                                ops::query_corpus_hybrid_reranked(
+                                    &corpus,
+                                    &query,
+                                    top_k,
+                                    rerank_over_fetch,
+                                    embedder.as_ref() as &dyn DynEmbedderTrait,
+                                    reranker.as_ref(),
+                                    &filter_map,
+                                )
+                            }
+                            #[cfg(not(feature = "hybrid"))]
+                            {
+                                unreachable!()
+                            }
+                        } else {
+                            ops::query_corpus_reranked(
+                                &corpus,
+                                &query,
+                                top_k,
+                                rerank_over_fetch,
+                                embedder.as_ref() as &dyn DynEmbedderTrait,
+                                reranker.as_ref(),
+                                &filter_map,
+                            )
+                        }
+                    }
+                    #[cfg(not(feature = "rerank"))]
+                    {
+                        unreachable!()
+                    }
+                } else if use_hybrid {
+                    #[cfg(feature = "hybrid")]
+                    {
+                        ops::query_corpus_hybrid(
                             &corpus,
                             &query,
                             top_k,
-                            rerank_over_fetch,
                             embedder.as_ref() as &dyn DynEmbedderTrait,
-                            reranker.as_ref(),
                             &filter_map,
-                        ) {
-                            Ok(hits) => print_query_results(&hits, format),
-                            Err(e) => {
-                                eprintln!("Error querying corpus {}: {e}", corpus.display());
-                                std::process::exit(1);
-                            }
-                        }
+                        )
+                    }
+                    #[cfg(not(feature = "hybrid"))]
+                    {
+                        unreachable!()
                     }
                 } else {
-                    match ops::query_corpus_with_filter(
+                    ops::query_corpus_with_filter(
                         &corpus,
                         &query,
                         top_k,
                         embedder.as_ref() as &dyn DynEmbedderTrait,
                         &filter_map,
-                    ) {
-                        Ok(hits) => print_query_results(&hits, format),
-                        Err(e) => {
-                            eprintln!("Error querying corpus {}: {e}", corpus.display());
-                            std::process::exit(1);
-                        }
+                    )
+                };
+
+                match result {
+                    Ok(hits) => print_query_results(&hits, format),
+                    Err(e) => {
+                        eprintln!("Error querying corpus {}: {e}", corpus.display());
+                        std::process::exit(1);
                     }
                 }
             });
@@ -361,6 +404,7 @@ async fn main() {
             ollama_model,
             ollama_url,
             token,
+            dense_only,
             #[cfg(feature = "rerank")]
             rerank,
             #[cfg(feature = "rerank")]
@@ -398,7 +442,8 @@ async fn main() {
             }
 
             if let Err(e) =
-                fastrag_cli::http::serve_http(corpus, port, embedder, token, rerank_cfg).await
+                fastrag_cli::http::serve_http(corpus, port, embedder, token, dense_only, rerank_cfg)
+                    .await
             {
                 eprintln!("Error starting HTTP server: {e}");
                 std::process::exit(1);

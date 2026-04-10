@@ -22,6 +22,7 @@ struct AppState {
     corpus_dir: PathBuf,
     embedder: DynEmbedder,
     metrics: PrometheusHandle,
+    dense_only: bool,
     #[cfg(feature = "rerank")]
     reranker: Option<std::sync::Arc<dyn fastrag_rerank::Reranker>>,
     #[cfg(feature = "rerank")]
@@ -87,6 +88,9 @@ struct QueryParams {
     /// Comma-separated equality filters: `customer=acme,severity=high`.
     #[serde(default)]
     filter: Option<String>,
+    /// Set to `dense-only` to skip BM25/Tantivy for this request.
+    #[serde(default)]
+    mode: Option<String>,
     /// Set to `off` to skip reranking for this request.
     #[serde(default)]
     rerank: Option<String>,
@@ -138,10 +142,14 @@ pub async fn serve_http(
     port: u16,
     embedder: DynEmbedder,
     token: Option<String>,
+    dense_only: bool,
     rerank_cfg: HttpRerankerConfig,
 ) -> Result<(), HttpError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    serve_http_with_embedder(corpus_dir, listener, embedder, token, rerank_cfg).await
+    serve_http_with_embedder(
+        corpus_dir, listener, embedder, token, dense_only, rerank_cfg,
+    )
+    .await
 }
 
 pub async fn serve_http_with_embedder(
@@ -149,6 +157,7 @@ pub async fn serve_http_with_embedder(
     listener: tokio::net::TcpListener,
     embedder: DynEmbedder,
     token: Option<String>,
+    dense_only: bool,
     rerank_cfg: HttpRerankerConfig,
 ) -> Result<(), HttpError> {
     // The `metrics` crate allows exactly one global recorder per process, but in
@@ -193,6 +202,7 @@ pub async fn serve_http_with_embedder(
         corpus_dir,
         embedder,
         metrics,
+        dense_only,
         #[cfg(feature = "rerank")]
         reranker: rerank_cfg.reranker,
         #[cfg(feature = "rerank")]
@@ -232,29 +242,76 @@ fn run_query(
     params: &QueryParams,
     filter_map: &std::collections::BTreeMap<String, String>,
 ) -> Result<Vec<SearchHit>, CorpusError> {
+    let dense_only = state.dense_only || params.mode.as_deref() == Some("dense-only");
+
+    #[cfg(feature = "hybrid")]
+    let use_hybrid = !dense_only;
+    #[cfg(not(feature = "hybrid"))]
+    let use_hybrid = {
+        let _ = dense_only;
+        false
+    };
+
     #[cfg(feature = "rerank")]
     {
         let skip = params.rerank.as_deref() == Some("off");
         if !skip && let Some(ref reranker) = state.reranker {
             let over_fetch = params.over_fetch.unwrap_or(state.rerank_over_fetch);
-            return ops::query_corpus_reranked(
+            return if use_hybrid {
+                #[cfg(feature = "hybrid")]
+                {
+                    ops::query_corpus_hybrid_reranked(
+                        &state.corpus_dir,
+                        &params.q,
+                        params.top_k,
+                        over_fetch,
+                        state.embedder.as_ref() as &dyn DynEmbedderTrait,
+                        reranker.as_ref(),
+                        filter_map,
+                    )
+                }
+                #[cfg(not(feature = "hybrid"))]
+                {
+                    unreachable!()
+                }
+            } else {
+                ops::query_corpus_reranked(
+                    &state.corpus_dir,
+                    &params.q,
+                    params.top_k,
+                    over_fetch,
+                    state.embedder.as_ref() as &dyn DynEmbedderTrait,
+                    reranker.as_ref(),
+                    filter_map,
+                )
+            };
+        }
+    }
+
+    if use_hybrid {
+        #[cfg(feature = "hybrid")]
+        {
+            ops::query_corpus_hybrid(
                 &state.corpus_dir,
                 &params.q,
                 params.top_k,
-                over_fetch,
                 state.embedder.as_ref() as &dyn DynEmbedderTrait,
-                reranker.as_ref(),
                 filter_map,
-            );
+            )
         }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            unreachable!()
+        }
+    } else {
+        ops::query_corpus_with_filter(
+            &state.corpus_dir,
+            &params.q,
+            params.top_k,
+            state.embedder.as_ref() as &dyn DynEmbedderTrait,
+            filter_map,
+        )
     }
-    ops::query_corpus_with_filter(
-        &state.corpus_dir,
-        &params.q,
-        params.top_k,
-        state.embedder.as_ref() as &dyn DynEmbedderTrait,
-        filter_map,
-    )
 }
 
 async fn query(

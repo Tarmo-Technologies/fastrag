@@ -106,6 +106,12 @@ pub struct SearchCorpusParams {
     /// Equality filters applied to entry metadata (AND-combined)
     #[schemars(description = "Equality filters applied to entry metadata (AND-combined)")]
     pub filter: Option<std::collections::BTreeMap<String, String>>,
+    /// Search mode: "hybrid" (default when available) or "dense-only".
+    /// Hybrid uses BM25 + dense vectors fused with RRF; dense-only skips Tantivy.
+    /// NOTE: Accepted in schema but not yet acted on — hybrid in MCP is deferred
+    /// until the tantivy index lifecycle is resolved for long-running MCP sessions.
+    #[schemars(description = "Search mode: 'hybrid' (default) or 'dense-only'")]
+    pub mode: Option<String>,
     /// Reranker mode: "off" to skip, "onnx" or "llama-cpp" to rerank.
     /// When omitted, no reranking is applied (MCP sessions don't auto-load models).
     /// NOTE: Accepted in schema but not yet acted on — reranking in MCP is deferred

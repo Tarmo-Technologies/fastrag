@@ -1,7 +1,9 @@
 mod entry;
 mod error;
+pub mod fusion;
 pub mod hash;
 mod hnsw;
+pub mod identifiers;
 mod manifest;
 
 pub use entry::{IndexEntry, SearchHit};

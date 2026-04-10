@@ -11,7 +11,9 @@ cargo test -p fastrag-embed --features llama-cpp       # llama-cpp backend unit 
 FASTRAG_LLAMA_TEST=1 cargo test -p fastrag-cli --test llama_cpp_corpus_e2e -- --ignored  # Requires llama-server + GGUF model
 cargo test -p fastrag-rerank --features onnx           # ONNX reranker unit tests
 cargo test -p fastrag-rerank --features llama-cpp      # llama-cpp reranker unit tests
-cargo clippy --workspace --all-targets --features retrieval,rerank -- -D warnings  # Full lint gate
+cargo test --workspace --features hybrid                                          # Hybrid retrieval tests
+cargo test -p fastrag-cli --test hybrid_e2e --features hybrid                     # Hybrid e2e integration test
+cargo clippy --workspace --all-targets --features retrieval,rerank,hybrid -- -D warnings  # Full lint gate
 FASTRAG_RERANK_TEST=1 cargo test -p fastrag-rerank --features onnx -- --ignored  # Requires ONNX model files
 FASTRAG_RERANK_TEST=1 cargo test -p fastrag-cli --test rerank_onnx_e2e -- --ignored  # ONNX rerank e2e
 FASTRAG_LLAMA_TEST=1 cargo test -p fastrag-cli --test rerank_llama_cpp_e2e -- --ignored  # llama-cpp rerank e2e

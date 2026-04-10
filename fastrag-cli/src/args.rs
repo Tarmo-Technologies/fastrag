@@ -226,6 +226,10 @@ pub enum Command {
         #[arg(long)]
         filter: Option<String>,
 
+        /// Skip BM25/Tantivy and use dense vector search only.
+        #[arg(long)]
+        dense_only: bool,
+
         /// Reranker backend (default: onnx). Reranking is on by default.
         #[cfg(feature = "rerank")]
         #[arg(long, value_enum, default_value = "onnx")]
@@ -367,6 +371,10 @@ pub enum Command {
         /// `Authorization: Bearer <token>`. /health stays unauthenticated.
         #[arg(long)]
         token: Option<String>,
+
+        /// Skip BM25/Tantivy and use dense vector search only.
+        #[arg(long)]
+        dense_only: bool,
 
         /// Reranker backend (default: onnx). Reranking is on by default.
         #[cfg(feature = "rerank")]

@@ -15,6 +15,7 @@ serde_json.workspace = true
 instant-distance = { workspace = true }
 bincode.workspace = true
 blake3 = "1"
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"

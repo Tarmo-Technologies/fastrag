@@ -89,6 +89,12 @@ impl HnswIndex {
         &self.entries
     }
 
+    /// Look up an entry by chunk ID. O(n) linear scan — fine for small result
+    /// sets (50-100 post-RRF).
+    pub fn entry_by_id(&self, id: u64) -> Option<&IndexEntry> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
     pub fn replace_manifest(&mut self, manifest: crate::manifest::CorpusManifest) {
         self.manifest = manifest;
     }
