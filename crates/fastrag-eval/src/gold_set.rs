@@ -344,8 +344,8 @@ mod tests {
             .join("tests/gold/questions.json");
         let gs = load(&path).expect("tests/gold/questions.json must validate");
         assert!(
-            gs.entries.len() >= 10,
-            "starter gold set must have at least 10 entries, found {}",
+            gs.entries.len() >= 100,
+            "gold set must have at least 100 entries, found {}",
             gs.entries.len()
         );
     }
