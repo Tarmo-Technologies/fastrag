@@ -1,7 +1,7 @@
 mod dataset;
 pub mod datasets;
 mod error;
-mod gold_set;
+pub mod gold_set;
 mod metrics;
 mod report;
 mod runner;
