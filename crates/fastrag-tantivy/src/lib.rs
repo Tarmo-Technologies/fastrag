@@ -75,6 +75,13 @@ impl TantivyIndex {
             let mut doc = tantivy::TantivyDocument::new();
             doc.add_u64(self.fields.id, entry.id);
             doc.add_text(self.fields.chunk_text, &entry.chunk_text);
+            // Persist the raw chunk text for display / exact-match. Fall
+            // back to `chunk_text` (which is raw on non-contextualized
+            // corpora) so the field is always populated.
+            doc.add_text(
+                self.fields.display_text,
+                entry.display_text.as_deref().unwrap_or(&entry.chunk_text),
+            );
             doc.add_text(
                 self.fields.source_path,
                 entry.source_path.to_string_lossy().as_ref(),
@@ -196,6 +203,7 @@ mod tests {
             pages: vec![],
             language: None,
             metadata,
+            display_text: None,
         }
     }
 

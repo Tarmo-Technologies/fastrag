@@ -38,7 +38,9 @@ pub enum IndexError {
     )]
     CanaryMismatch { cosine: f32, tolerance: f32 },
 
-    #[error("unsupported corpus schema: got v{got}, expected v3")]
+    #[error(
+        "unsupported corpus schema: got v{got}, expected v4 — rebuild the corpus with `fastrag index` to upgrade"
+    )]
     UnsupportedSchema { got: u32 },
 
     #[error("embedder error during canary verification: {0}")]

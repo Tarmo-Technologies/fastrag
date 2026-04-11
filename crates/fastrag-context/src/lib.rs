@@ -9,10 +9,10 @@
 //! the full design.
 
 mod cache;
-mod contextualizer;
+pub mod contextualizer;
 #[cfg(feature = "llama-cpp")]
 mod llama;
-mod prompt;
+pub mod prompt;
 mod stage;
 
 #[cfg(any(feature = "test-utils", test))]
@@ -23,7 +23,7 @@ pub use contextualizer::{Contextualizer, ContextualizerMeta, NoContextualizer};
 #[cfg(feature = "llama-cpp")]
 pub use llama::LlamaCppContextualizer;
 pub use prompt::{PROMPT, PROMPT_VERSION, format_prompt};
-pub use stage::run_contextualize_stage;
+pub use stage::{StageStats, run_contextualize_stage};
 
 /// Crate-level schema version for the SQLite cache. Bump when the table
 /// definition, primary key shape, or canonical content of existing rows

@@ -49,6 +49,7 @@ pub mod test_utils {
                 pages: vec![],
                 language: None,
                 metadata: std::collections::BTreeMap::new(),
+                display_text: None,
             },
             score,
         }

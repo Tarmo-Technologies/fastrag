@@ -29,7 +29,7 @@ fn mock_manifest() -> CorpusManifest {
         .next()
         .unwrap();
     CorpusManifest {
-        version: 3,
+        version: 4,
         identity: embedder.identity(),
         canary: Canary {
             text_version: 1,
@@ -43,6 +43,7 @@ fn mock_manifest() -> CorpusManifest {
         },
         roots: vec![],
         files: vec![],
+        contextualizer: None,
     }
 }
 
@@ -65,6 +66,7 @@ fn test_entry(id: u64, text: &str, meta: BTreeMap<String, String>) -> IndexEntry
         pages: vec![],
         language: None,
         metadata: meta,
+        display_text: None,
     }
 }
 

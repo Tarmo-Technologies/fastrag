@@ -121,7 +121,7 @@ impl HnswIndex {
 
         let manifest: crate::manifest::CorpusManifest = serde_json::from_slice(&manifest_bytes)?;
 
-        if manifest.version != 3 {
+        if manifest.version != 4 {
             return Err(IndexError::UnsupportedSchema {
                 got: manifest.version,
             });
@@ -346,6 +346,7 @@ mod tests {
             pages: vec![1],
             language: Some("en".to_string()),
             metadata: std::collections::BTreeMap::new(),
+            display_text: None,
         }
     }
 

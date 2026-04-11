@@ -174,6 +174,8 @@ async fn main() {
                     &chunking,
                     embedder.as_ref() as &dyn DynEmbedderTrait,
                     &base_metadata,
+                    #[cfg(feature = "contextual")]
+                    None,
                 ) {
                     Ok(stats) => {
                         println!("{}", serde_json::to_string_pretty(&stats).unwrap());

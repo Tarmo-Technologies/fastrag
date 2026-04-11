@@ -45,6 +45,13 @@ pub fn format_prompt(doc_title: &str, chunk: &str) -> String {
         .replace("{chunk}", chunk)
 }
 
+/// BLAKE3 hex digest of [`PROMPT`]. Stamped onto the corpus manifest so
+/// `corpus-info` and `--retry-failed` can detect prompt text drift even when
+/// [`PROMPT_VERSION`] was not bumped.
+pub fn prompt_hash_hex() -> String {
+    blake3::hash(PROMPT.as_bytes()).to_hex().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

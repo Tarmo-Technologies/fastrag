@@ -187,7 +187,7 @@ mod tests {
             .next()
             .unwrap();
         CorpusManifest {
-            version: 3,
+            version: 4,
             identity: embedder.identity(),
             canary: Canary {
                 text_version: 1,
@@ -201,6 +201,7 @@ mod tests {
             },
             roots: vec![],
             files: vec![],
+            contextualizer: None,
         }
     }
 
@@ -223,6 +224,7 @@ mod tests {
             pages: vec![],
             language: None,
             metadata: meta,
+            display_text: None,
         }
     }
 

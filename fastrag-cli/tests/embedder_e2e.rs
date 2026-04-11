@@ -74,7 +74,7 @@ fn index_and_query_with_openai_backend() {
         "openai:text-embedding-3-small"
     );
     assert_eq!(manifest["identity"]["dim"].as_u64().unwrap(), 1536);
-    assert_eq!(manifest["version"].as_u64().unwrap(), 3);
+    assert_eq!(manifest["version"].as_u64().unwrap(), 4);
 }
 
 #[test]

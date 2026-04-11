@@ -10,6 +10,12 @@ pub struct Chunk {
     pub char_count: usize,
     pub section: Option<String>,
     pub index: usize,
+    /// Raw chunk text with an LLM-generated context prefix prepended by the
+    /// contextualization stage (see `fastrag-context`). `None` when no
+    /// contextualizer ran for this chunk or when contextualization failed in
+    /// non-strict mode; downstream consumers fall back to [`Self::text`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contextualized_text: Option<String>,
 }
 
 /// Configuration for injecting document context into chunk text.
@@ -250,6 +256,7 @@ fn recursive_character_chunk(
                 char_count,
                 section: None,
                 index: i,
+                contextualized_text: None,
             }
         })
         .collect();
@@ -508,6 +515,7 @@ fn build_sentence_chunk(
             char_count,
             section: None,
             index: existing_chunks.len(),
+            contextualized_text: None,
         }]
     } else {
         // Sub-chunk if text exceeds max_characters
@@ -530,6 +538,7 @@ fn build_sentence_chunk(
                     char_count,
                     section: None,
                     index: existing_chunks.len() + sub_chunks.len(),
+                    contextualized_text: None,
                 });
                 current_els.clear();
             }
@@ -554,6 +563,7 @@ fn build_sentence_chunk(
                 char_count,
                 section: None,
                 index: existing_chunks.len() + sub_chunks.len(),
+                contextualized_text: None,
             });
         }
 
@@ -574,6 +584,7 @@ fn build_chunk(elements: Vec<Element>, index: usize, section: Option<String>) ->
         char_count,
         section,
         index,
+        contextualized_text: None,
     }
 }
 
@@ -582,6 +593,64 @@ mod tests {
     use super::*;
     use crate::document::Metadata;
     use crate::format::FileFormat;
+
+    #[test]
+    fn chunk_contextualized_text_defaults_to_none() {
+        let chunk = Chunk {
+            elements: vec![],
+            text: "Raw text.".to_string(),
+            char_count: 9,
+            section: None,
+            index: 0,
+            contextualized_text: None,
+        };
+        assert!(chunk.contextualized_text.is_none());
+        assert_eq!(chunk.text, "Raw text.");
+    }
+
+    #[test]
+    fn chunk_contextualized_text_holds_prefix_plus_raw() {
+        let chunk = Chunk {
+            elements: vec![],
+            text: "Raw text.".to_string(),
+            char_count: 9,
+            section: None,
+            index: 0,
+            contextualized_text: Some("Context. Raw text.".to_string()),
+        };
+        assert_eq!(
+            chunk.contextualized_text.as_deref(),
+            Some("Context. Raw text.")
+        );
+        // Raw text field must remain unchanged — it's what display/exact-match uses.
+        assert_eq!(chunk.text, "Raw text.");
+    }
+
+    #[test]
+    fn chunk_contextualized_text_skipped_when_none_in_json() {
+        let chunk = Chunk {
+            elements: vec![],
+            text: "Raw.".to_string(),
+            char_count: 4,
+            section: None,
+            index: 0,
+            contextualized_text: None,
+        };
+        let json = serde_json::to_string(&chunk).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(
+            parsed.get("contextualized_text").is_none(),
+            "None should be skipped in JSON output, got: {json}"
+        );
+    }
+
+    #[test]
+    fn chunk_deserializes_without_contextualized_text_field() {
+        let json = r#"{"elements":[],"text":"Raw.","char_count":4,"section":null,"index":0}"#;
+        let chunk: Chunk = serde_json::from_str(json).unwrap();
+        assert!(chunk.contextualized_text.is_none());
+        assert_eq!(chunk.text, "Raw.");
+    }
 
     #[test]
     fn chunk_serializes_to_json() {

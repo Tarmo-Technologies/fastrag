@@ -14,6 +14,7 @@ pub struct MockContextualizer {
     model_id: String,
     prompt_version: u32,
     fail_every: usize,
+    panic_on_call: bool,
     counter: Mutex<usize>,
 }
 
@@ -24,6 +25,7 @@ impl MockContextualizer {
             model_id: "mock-ok".to_string(),
             prompt_version: 1,
             fail_every: 0,
+            panic_on_call: false,
             counter: Mutex::new(0),
         }
     }
@@ -35,6 +37,20 @@ impl MockContextualizer {
             model_id: "mock-flaky".to_string(),
             prompt_version: 1,
             fail_every: n,
+            panic_on_call: false,
+            counter: Mutex::new(0),
+        }
+    }
+
+    /// Build a mock that panics on any call. Useful for asserting that a
+    /// cache hit short-circuits the stage before the contextualizer is
+    /// invoked.
+    pub fn panicking() -> Self {
+        Self {
+            model_id: "mock".to_string(),
+            prompt_version: 1,
+            fail_every: 0,
+            panic_on_call: true,
             counter: Mutex::new(0),
         }
     }
@@ -51,6 +67,9 @@ impl ContextualizerMeta for MockContextualizer {
 
 impl Contextualizer for MockContextualizer {
     fn contextualize(&self, doc_title: &str, raw_chunk: &str) -> Result<String, ContextError> {
+        if self.panic_on_call {
+            panic!("MockContextualizer::panicking was called unexpectedly");
+        }
         let mut count = self.counter.lock().expect("mock counter poisoned");
         *count += 1;
         if self.fail_every > 0 && (*count).is_multiple_of(self.fail_every) {

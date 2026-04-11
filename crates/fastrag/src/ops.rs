@@ -468,6 +468,7 @@ mod tests {
             char_count: 5,
             section: None,
             elements: vec![],
+            contextualized_text: None,
         }];
         let result = render_chunks(&chunks, OutputFormat::Jsonl);
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();

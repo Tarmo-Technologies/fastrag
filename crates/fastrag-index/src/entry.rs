@@ -8,6 +8,10 @@ use std::path::PathBuf;
 pub struct IndexEntry {
     pub id: u64,
     pub vector: Vec<f32>,
+    /// Text that was indexed for both BM25 and the dense vector. When the
+    /// contextualization stage runs, this is the `"{context}\n\n{raw}"`
+    /// form. When contextualization is disabled, this is the raw chunk
+    /// text (and `display_text` is `None`).
     pub chunk_text: String,
     pub source_path: PathBuf,
     pub chunk_index: usize,
@@ -20,6 +24,23 @@ pub struct IndexEntry {
     /// Empty on older indexes — `#[serde(default)]` keeps them loadable.
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
+    /// Raw chunk text preserved verbatim for display and CVE/CWE exact-match
+    /// lookup. `Some(raw)` when contextualization has prefixed `chunk_text`,
+    /// `None` on corpora without contextualization (display falls back to
+    /// `chunk_text`, which is raw in that case). `#[serde(default)]` keeps
+    /// pre-v2 JSON entries loadable; bincode-serialized entries always
+    /// carry the field (its presence tag is a single byte for `None`).
+    #[serde(default)]
+    pub display_text: Option<String>,
+}
+
+impl IndexEntry {
+    /// Returns the text appropriate for display to humans / downstream LLMs —
+    /// `display_text` if populated (contextualized corpora), otherwise
+    /// `chunk_text` (non-contextualized corpora store raw there).
+    pub fn display(&self) -> &str {
+        self.display_text.as_deref().unwrap_or(&self.chunk_text)
+    }
 }
 
 impl IndexEntry {

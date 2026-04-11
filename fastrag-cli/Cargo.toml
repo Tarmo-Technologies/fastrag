@@ -55,6 +55,8 @@ rerank-llama = [
     "fastrag-embed/llama-cpp",
 ]
 hybrid = ["retrieval", "fastrag/hybrid"]
+contextual = ["retrieval", "fastrag/contextual"]
+contextual-llama = ["contextual", "fastrag/contextual-llama"]
 eval = ["dep:fastrag-eval", "dep:fastrag-embed", "fastrag-embed/legacy-candle", "fastrag-embed/test-utils"]
 
 [dev-dependencies]

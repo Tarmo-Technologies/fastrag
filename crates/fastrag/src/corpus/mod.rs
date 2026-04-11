@@ -18,6 +18,25 @@ use fastrag_embed::DynEmbedderTrait;
 pub mod hybrid;
 pub mod incremental;
 
+/// Options that opt a single `index_path_with_metadata` run into Contextual
+/// Retrieval. Carries the contextualizer, a mutable borrow on the cache, and
+/// the `strict` flag. Only constructed at the CLI / test layer — the core
+/// ops crate stays feature-gated.
+#[cfg(feature = "contextual")]
+pub struct ContextualizeOptions<'a> {
+    pub contextualizer: &'a dyn fastrag_context::Contextualizer,
+    pub cache: &'a mut fastrag_context::ContextCache,
+    pub strict: bool,
+}
+
+/// Per-run contextualization counters surfaced back to the CLI summary line.
+#[cfg(feature = "contextual")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ContextualizeStats {
+    pub ok: usize,
+    pub fallback: usize,
+}
+
 #[derive(Debug, Error)]
 pub enum CorpusError {
     #[error("I/O error: {0}")]
@@ -66,6 +85,14 @@ pub struct CorpusIndexStats {
     pub chunks_added: usize,
     #[serde(default)]
     pub chunks_removed: usize,
+    /// Count of chunks that got a successful LLM-generated context prefix.
+    /// `0` on runs without `--contextualize`.
+    #[serde(default)]
+    pub chunks_contextualized: usize,
+    /// Count of chunks that fell back to raw text (per-chunk failure in
+    /// non-strict mode). `0` on runs without `--contextualize`.
+    #[serde(default)]
+    pub chunks_contextualize_fallback: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,6 +144,8 @@ pub fn index_path(
         chunking,
         embedder,
         &std::collections::BTreeMap::new(),
+        #[cfg(feature = "contextual")]
+        None,
     )
 }
 
@@ -134,6 +163,7 @@ pub fn index_path_with_metadata(
     chunking: &ChunkingStrategy,
     embedder: &dyn DynEmbedderTrait,
     base_metadata: &std::collections::BTreeMap<String, String>,
+    #[cfg(feature = "contextual")] mut contextualize: Option<ContextualizeOptions<'_>>,
 ) -> Result<CorpusIndexStats, CorpusError> {
     use crate::corpus::incremental::{plan_index, walk_for_plan};
 
@@ -226,10 +256,45 @@ pub fn index_path_with_metadata(
         .cloned()
         .collect();
 
+    #[cfg(feature = "contextual")]
+    let mut contextualize_totals = ContextualizeStats::default();
+
     for wf in &to_embed {
         let doc = load_document(&wf.abs_path)?;
-        let chunks = chunk_document(&doc, chunking);
-        let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
+        #[allow(unused_mut)]
+        let mut chunks = chunk_document(&doc, chunking);
+
+        // Contextualization stage: feature-gated, runs after chunking and
+        // before embedding. Mutates each `Chunk` in place so the later
+        // embedder call can read `contextualized_text` when present.
+        #[cfg(feature = "contextual")]
+        if let Some(opts) = contextualize.as_mut() {
+            let doc_title: String = doc_title_from(&doc).unwrap_or_default();
+            let stats = fastrag_context::run_contextualize_stage(
+                opts.contextualizer,
+                opts.cache,
+                &doc_title,
+                &mut chunks,
+                opts.strict,
+            )
+            .map_err(|e| CorpusError::Embed(format!("contextualize: {e}")))?;
+            contextualize_totals.ok += stats.ok;
+            contextualize_totals.fallback += stats.failed;
+        }
+
+        let texts: Vec<&str> = chunks
+            .iter()
+            .map(|c| {
+                #[cfg(feature = "contextual")]
+                {
+                    c.contextualized_text.as_deref().unwrap_or(c.text.as_str())
+                }
+                #[cfg(not(feature = "contextual"))]
+                {
+                    c.text.as_str()
+                }
+            })
+            .collect();
         let vectors: Vec<_> = if chunks.is_empty() {
             Vec::new()
         } else {
@@ -261,10 +326,23 @@ pub fn index_path_with_metadata(
                 let id = next_id;
                 next_id += 1;
                 chunk_ids.push(id);
+                // When contextualization produced a prefixed form, the
+                // indexed body is that prefixed text and the display/raw
+                // text is preserved separately. Otherwise chunk_text holds
+                // raw text directly and display_text is None.
+                #[allow(unused_mut)]
+                let mut display_text: Option<String> = None;
+                #[allow(unused_mut)]
+                let mut chunk_text: String = chunk.text.clone();
+                #[cfg(feature = "contextual")]
+                if let Some(ctx) = chunk.contextualized_text.as_ref() {
+                    display_text = Some(chunk.text.clone());
+                    chunk_text = ctx.clone();
+                }
                 IndexEntry {
                     id,
                     vector,
-                    chunk_text: chunk.text.clone(),
+                    chunk_text,
                     source_path: wf.abs_path.clone(),
                     chunk_index: chunk.index,
                     section: chunk.section.clone(),
@@ -278,6 +356,7 @@ pub fn index_path_with_metadata(
                         .collect(),
                     language: chunk_language(&doc, &chunk),
                     metadata: file_metadata.clone(),
+                    display_text,
                 }
             })
             .collect();
@@ -306,6 +385,19 @@ pub fn index_path_with_metadata(
     }
     manifest.chunk_count = index.entries().len();
 
+    // Stamp the contextualizer block on the manifest whenever this run had a
+    // contextualizer attached, even if every chunk fell back to raw. That
+    // way `corpus-info` reports provenance and `--retry-failed` can tell
+    // whether a model mismatch is in play.
+    #[cfg(feature = "contextual")]
+    if let Some(opts) = contextualize.as_ref() {
+        manifest.contextualizer = Some(fastrag_index::ContextualizerManifest {
+            model_id: opts.contextualizer.model_id().to_string(),
+            prompt_version: opts.contextualizer.prompt_version(),
+            prompt_hash: fastrag_context::prompt::prompt_hash_hex(),
+        });
+    }
+
     index.replace_manifest(manifest.clone());
     index.save(corpus_dir)?;
 
@@ -321,6 +413,14 @@ pub fn index_path_with_metadata(
         files_deleted: plan.deleted.len(),
         chunks_added,
         chunks_removed,
+        #[cfg(feature = "contextual")]
+        chunks_contextualized: contextualize_totals.ok,
+        #[cfg(not(feature = "contextual"))]
+        chunks_contextualized: 0,
+        #[cfg(feature = "contextual")]
+        chunks_contextualize_fallback: contextualize_totals.fallback,
+        #[cfg(not(feature = "contextual"))]
+        chunks_contextualize_fallback: 0,
     })
 }
 
@@ -540,6 +640,30 @@ fn load_document(path: &Path) -> Result<Document, CorpusError> {
     Ok(doc)
 }
 
+#[cfg(feature = "contextual")]
+fn doc_title_from(doc: &Document) -> Option<String> {
+    // Prefer the parser-derived metadata title; fall back to the first
+    // top-level Title / Heading element so contextualization has *some*
+    // document-level signal to condition the prompt on.
+    if let Some(t) = doc.metadata.title.as_deref()
+        && !t.trim().is_empty()
+    {
+        return Some(t.to_string());
+    }
+    for el in &doc.elements {
+        if matches!(
+            el.kind,
+            crate::ElementKind::Title | crate::ElementKind::Heading
+        ) {
+            let t = el.text.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn chunk_document(doc: &Document, strategy: &ChunkingStrategy) -> Vec<crate::Chunk> {
     doc.chunk(strategy)
 }
@@ -682,6 +806,8 @@ mod tests {
             },
             &MockEmbedder,
             &base,
+            #[cfg(feature = "contextual")]
+            None,
         )
         .unwrap();
 
@@ -732,6 +858,8 @@ mod tests {
             },
             &MockEmbedder,
             &std::collections::BTreeMap::new(),
+            #[cfg(feature = "contextual")]
+            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("must be a string"));

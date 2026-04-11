@@ -51,7 +51,7 @@ fn qwen3_index_query_round_trip() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(corpus.path().join("manifest.json")).unwrap())
             .unwrap();
-    assert_eq!(manifest["version"].as_u64().unwrap(), 3);
+    assert_eq!(manifest["version"].as_u64().unwrap(), 4);
     assert_eq!(
         manifest["identity"]["model_id"].as_str().unwrap(),
         "Qwen/Qwen3-Embedding-0.6B-GGUF@Q8_0"
