@@ -46,9 +46,29 @@ impl ContextualizerMeta for LlamaCppContextualizer {
     }
 }
 
+/// Test-only counter for the `FASTRAG_TEST_INJECT_FAILURES` env-var hook.
+/// Lives at module scope so failure injection is shared across multiple
+/// contextualizer instances within a single test process.
+static FAIL_INJECTION_COUNT: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
 impl Contextualizer for LlamaCppContextualizer {
     fn contextualize(&self, doc_title: &str, raw_chunk: &str) -> Result<String, ContextError> {
+        // Test-only injection hook. Reads `FASTRAG_TEST_INJECT_FAILURES=N`
+        // and returns `EmptyCompletion` for the first N calls so the
+        // retry-failed E2E test can simulate transient backend failures
+        // without bringing the real model down. The counter is process-wide
+        // so it survives a `--retry-failed` re-invocation that re-uses the
+        // same env var (the test unsets it for the retry pass).
         let prompt = format_prompt(doc_title, raw_chunk);
+        if let Ok(n_str) = std::env::var("FASTRAG_TEST_INJECT_FAILURES")
+            && let Ok(n) = n_str.parse::<usize>()
+        {
+            let mut count = FAIL_INJECTION_COUNT.lock().unwrap();
+            if *count < n {
+                *count += 1;
+                return Err(ContextError::EmptyCompletion);
+            }
+        }
         match self.client.complete(&prompt) {
             Ok(text) => Ok(text),
             Err(CompletionError::Http(e)) => {

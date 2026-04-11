@@ -240,6 +240,18 @@ impl ContextCache {
         Ok(rows.into_iter())
     }
 
+    /// Materialize every `status='ok'` row into an owned Vec. Used by the
+    /// `--retry-failed` rebuild path so the dense index can be regenerated
+    /// from the cache without re-parsing the source documents.
+    pub fn iter_ok(&self) -> Result<std::vec::IntoIter<CachedContext>, ContextError> {
+        let sql = format!("SELECT {SELECT_COLS} FROM context WHERE status = 'ok'");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows: Vec<CachedContext> = stmt
+            .query_map([], map_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows.into_iter())
+    }
+
     /// Count rows, for diagnostics.
     pub fn row_count(&self) -> Result<(u64, u64), ContextError> {
         let ok: i64 = self.conn.query_row(
@@ -459,6 +471,49 @@ mod tests {
         let (ok, failed) = cache.row_count().unwrap();
         assert_eq!(ok, 3);
         assert_eq!(failed, 2);
+    }
+
+    #[test]
+    fn iter_ok_returns_only_ok_rows() {
+        let (mut cache, _dir) = temp_cache();
+        for i in 0..3u8 {
+            cache
+                .put_ok(
+                    CacheKey {
+                        chunk_hash: [i; 32],
+                        ctx_version: 1,
+                        model_id: "m",
+                        prompt_version: 1,
+                    },
+                    &format!("raw-{i}"),
+                    "",
+                    &format!("ctx-{i}"),
+                )
+                .unwrap();
+        }
+        cache
+            .mark_failed(
+                CacheKey {
+                    chunk_hash: [9u8; 32],
+                    ctx_version: 1,
+                    model_id: "m",
+                    prompt_version: 1,
+                },
+                "raw-failed",
+                "",
+                "boom",
+            )
+            .unwrap();
+
+        let ok_rows: Vec<CachedContext> = cache.iter_ok().unwrap().collect();
+        assert_eq!(ok_rows.len(), 3);
+        for row in &ok_rows {
+            assert_eq!(row.status, CacheStatus::Ok);
+            assert!(row.context_text.is_some());
+        }
+        let mut hashes: Vec<[u8; 32]> = ok_rows.iter().map(|r| r.chunk_hash).collect();
+        hashes.sort();
+        assert_eq!(hashes, vec![[0u8; 32], [1u8; 32], [2u8; 32]]);
     }
 
     #[test]

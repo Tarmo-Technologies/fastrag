@@ -685,19 +685,111 @@ pub fn retry_failed_contextualizations(
 /// Rebuild the dense HNSW index from the SQLite cache. Consumed by
 /// [`retry_failed_contextualizations`] when any retry succeeds.
 ///
-/// The implementation is deferred to Phase 6 alongside the E2E test that
-/// exercises it. Until then, calling this path will panic via `todo!()`.
+/// Walks every entry in the existing index, looks up the chunk's cache row by
+/// `blake3(raw_text)`, and re-embeds with the freshest contextualized text
+/// (or raw text if the row is still failed). The index file is then
+/// overwritten in place. Tantivy bodies for repaired chunks are rewritten
+/// alongside the dense rebuild.
 #[cfg(feature = "contextual")]
 fn rebuild_dense_from_cache(
-    _corpus_dir: &Path,
-    _cache: &fastrag_context::ContextCache,
-    _embedder: &dyn DynEmbedderTrait,
+    corpus_dir: &Path,
+    cache: &fastrag_context::ContextCache,
+    embedder: &dyn DynEmbedderTrait,
 ) -> Result<(), CorpusError> {
-    // Phase 6 Task 6.2 implements this; the E2E test in
-    // `fastrag-cli/tests/contextual_retry_failed_e2e.rs` drives the
-    // implementation. Until that lands, the retry path is non-functional
-    // when any row was actually repaired.
-    todo!("rebuild_dense_from_cache — implement in Phase 6 Task 6.2 alongside the E2E test")
+    use fastrag_context::{CTX_VERSION, CacheKey, CacheStatus};
+    use fastrag_embed::PassageText;
+
+    // 1. Load the existing index. We need its entries (for ids + metadata)
+    //    and its manifest (to construct the fresh HNSW).
+    let existing = HnswIndex::load(corpus_dir, embedder)?;
+    let manifest = existing.manifest().clone();
+    let contextualizer_meta = manifest.contextualizer.as_ref().ok_or_else(|| {
+        CorpusError::Embed(
+            "rebuild_dense_from_cache called on a corpus with no contextualizer manifest entry"
+                .to_string(),
+        )
+    })?;
+    let model_id = contextualizer_meta.model_id.clone();
+    let prompt_version = contextualizer_meta.prompt_version;
+
+    // 2. Build the new entries by walking the existing ones and consulting
+    //    the cache for each chunk's current contextualization state.
+    let old_entries = existing.entries().to_vec();
+    let mut new_entries: Vec<IndexEntry> = Vec::with_capacity(old_entries.len());
+    for entry in old_entries.into_iter() {
+        // Raw text source: display_text (when contextualization had been
+        // applied) or chunk_text (when the chunk fell back to raw — in which
+        // case display_text is None).
+        let raw_text = entry
+            .display_text
+            .clone()
+            .unwrap_or_else(|| entry.chunk_text.clone());
+        let chunk_hash: [u8; 32] = *blake3::hash(raw_text.as_bytes()).as_bytes();
+        let key = CacheKey {
+            chunk_hash,
+            ctx_version: CTX_VERSION,
+            model_id: &model_id,
+            prompt_version,
+        };
+        let cache_row = cache
+            .get(key)
+            .map_err(|e| CorpusError::Embed(format!("cache.get during rebuild: {e}")))?;
+        let (new_chunk_text, new_display_text) = match cache_row {
+            Some(row) if row.status == CacheStatus::Ok => match row.context_text {
+                Some(ctx) => (format!("{ctx}\n\n{raw_text}"), Some(raw_text.clone())),
+                None => (raw_text.clone(), None),
+            },
+            _ => (raw_text.clone(), None),
+        };
+
+        let vector = embedder
+            .embed_passage_dyn(&[PassageText::new(&new_chunk_text)])
+            .map_err(|e| CorpusError::Embed(format!("embed during rebuild: {e}")))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| CorpusError::Embed("embedder returned no vector".to_string()))?;
+
+        new_entries.push(IndexEntry {
+            id: entry.id,
+            vector,
+            chunk_text: new_chunk_text,
+            source_path: entry.source_path,
+            chunk_index: entry.chunk_index,
+            section: entry.section,
+            element_kinds: entry.element_kinds,
+            pages: entry.pages,
+            language: entry.language,
+            metadata: entry.metadata,
+            display_text: new_display_text,
+        });
+    }
+
+    // 3. Persist a fresh HNSW over the same manifest, overwriting the live
+    //    files atomically via `save`.
+    let mut fresh = HnswIndex::new(manifest);
+    fresh.add(new_entries.clone())?;
+    fresh.save(corpus_dir)?;
+
+    // 4. Rewrite Tantivy bodies for the same chunks. Delete-by-id then
+    //    re-add with the new chunk_text. Skipped silently if the corpus has
+    //    no Tantivy index (compiled without the `hybrid` feature, or the
+    //    sidecar dir is missing).
+    #[cfg(feature = "hybrid")]
+    {
+        if fastrag_tantivy::TantivyIndex::exists(corpus_dir) {
+            let tantivy = fastrag_tantivy::TantivyIndex::open(corpus_dir)
+                .map_err(|e| CorpusError::Embed(format!("tantivy open during rebuild: {e}")))?;
+            let ids: Vec<u64> = new_entries.iter().map(|e| e.id).collect();
+            tantivy
+                .delete_by_ids(&ids)
+                .map_err(|e| CorpusError::Embed(format!("tantivy delete during rebuild: {e}")))?;
+            tantivy
+                .add_entries(&new_entries)
+                .map_err(|e| CorpusError::Embed(format!("tantivy add during rebuild: {e}")))?;
+        }
+    }
+
+    Ok(())
 }
 
 pub fn corpus_info(

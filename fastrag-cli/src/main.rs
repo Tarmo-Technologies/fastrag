@@ -592,27 +592,28 @@ fn chunking_from_args(
 
 #[cfg(feature = "contextual")]
 fn print_contextualizer_info(corpus: &Path, info: &fastrag::corpus::CorpusInfo) {
-    eprintln!();
+    println!();
     match info.manifest.contextualizer.as_ref() {
         Some(c) => {
-            eprintln!("contextualized: true");
-            eprintln!("  model_id:       {}", c.model_id);
-            eprintln!("  prompt_version: {}", c.prompt_version);
-            eprintln!("  prompt_hash:    {}", c.prompt_hash);
+            println!("contextualized: true");
+            println!("  model_id:       {}", c.model_id);
+            println!("  prompt_version: {}", c.prompt_version);
+            println!("  prompt_hash:    {}", c.prompt_hash);
             let cache_path = corpus.join("contextualization.sqlite");
             if cache_path.exists() {
                 match fastrag_context::ContextCache::open(&cache_path).and_then(|c| c.row_count()) {
                     Ok((ok, failed)) => {
-                        eprintln!("  cached:         {ok} ok / {failed} failed");
+                        println!("  ok:    {ok}");
+                        println!("  failed: {failed}");
                     }
                     Err(e) => {
-                        eprintln!("  cached:         ERROR — {e}");
+                        println!("  cached:         ERROR — {e}");
                     }
                 }
             }
         }
         None => {
-            eprintln!("contextualized: false");
+            println!("contextualized: false");
         }
     }
 }
