@@ -17,6 +17,15 @@ cargo clippy --workspace --all-targets --features retrieval,rerank,hybrid -- -D 
 FASTRAG_RERANK_TEST=1 cargo test -p fastrag-rerank --features onnx -- --ignored  # Requires ONNX model files
 FASTRAG_RERANK_TEST=1 cargo test -p fastrag-cli --test rerank_onnx_e2e -- --ignored  # ONNX rerank e2e
 FASTRAG_LLAMA_TEST=1 cargo test -p fastrag-cli --test rerank_llama_cpp_e2e -- --ignored  # llama-cpp rerank e2e
+cargo test --workspace --features contextual                                # Contextual retrieval tests
+cargo test -p fastrag-context                                               # Contextualizer crate unit tests
+cargo test -p fastrag-context --features test-utils --test cache_resume     # Cache resume integration test
+cargo test -p fastrag-context --features test-utils --test stage_fallback   # Stage fallback integration test
+cargo test -p fastrag-context --features llama-cpp                          # LlamaCppContextualizer unit tests (wiremock)
+FASTRAG_LLAMA_TEST=1 cargo test -p fastrag-cli --features contextual,contextual-llama --test contextual_corpus_e2e -- --ignored
+FASTRAG_LLAMA_TEST=1 cargo test -p fastrag-cli --features contextual,contextual-llama --test contextual_retry_failed_e2e -- --ignored
+FASTRAG_LLAMA_TEST=1 cargo test -p fastrag-cli --features contextual,contextual-llama --test contextual_strict_e2e -- --ignored
+cargo clippy --workspace --all-targets --features retrieval,rerank,hybrid,contextual -- -D warnings  # Full lint gate (with contextual)
 cargo fmt --check            # Format check
 cargo build --release        # Release build (binary at target/release/fastrag)
 ```
@@ -53,8 +62,10 @@ The CLI includes semantic corpus retrieval commands behind the `retrieval` featu
 
 ```bash
 cargo run -- index ./documents --corpus ./corpus
+cargo run -- index ./documents --corpus ./corpus --contextualize
+cargo run -- index --corpus ./corpus --contextualize --retry-failed
 cargo run -- query "invoice payment terms" --corpus ./corpus --top-k 5
-cargo run -- corpus-info --corpus ./corpus
+cargo run -- corpus-info --corpus ./corpus  # Shows contextualized: true or false
 cargo run -- serve-http --corpus ./corpus --port 8081
 ```
 
