@@ -99,9 +99,11 @@ Each step is a sub-project with its own spec, plan, and PR. Issue numbers are pl
 
 **Why fifth.** Depends on Steps 1–4 being in place so the effect can be measured against a full production pipeline and the cache semantics don't have to work around in-flight architectural churn.
 
-### Step 6 — Eval harness refresh + gold set
+### Step 6 — Eval harness refresh + gold set ✅ Shipped 2026-04-11
 
 **Goal.** Rebuild the eval harness so #25's baselines are meaningful against the new stack, and formalize a hand-curated gold set as the primary CI gate.
+
+**Shipped.** `fastrag-eval` crate with gold set loader, union-of-top-k scorer, `LatencyBreakdown` instrumentation threaded through all five `query_corpus_*` variants, 4-variant config matrix (Primary / NoRerank / NoContextual / DenseOnly), baseline diff + 2% slack gate, `cargo run -- eval --config-matrix` CLI surface, 105-entry gold set under `tests/gold/questions.json`, 50-doc fixture corpus under `tests/gold/corpus/`, nightly `weekly.yml` workflow (Sundays 06:00 UTC, 45-min timeout, 7-day check-changes gate, matrix.json artifact upload). Baseline refresh flow documented at `docs/eval-baselines/README.md` — initial capture deferred to a local workstation with llama-server available.
 
 **Scope.**
 - Eval harness runs the real embedder + reranker + hybrid against a real (small) corpus on every PR that touches retrieval code. No bag-of-words stubs anywhere (shim lesson #2). Fast smoke eval runs in CI; slow real-model eval runs nightly.
