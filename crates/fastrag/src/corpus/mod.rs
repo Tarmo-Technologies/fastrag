@@ -47,6 +47,32 @@ pub struct RetryReport {
     pub rebuilt_dense: bool,
 }
 
+/// Per-stage query latency in microseconds.
+///
+/// Passed `&mut` into every `query_corpus_*` variant. Callers that don't
+/// care pass `&mut LatencyBreakdown::default()` and ignore the result.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LatencyBreakdown {
+    pub embed_us: u64,
+    pub bm25_us: u64,
+    pub hnsw_us: u64,
+    pub rerank_us: u64,
+    pub fuse_us: u64,
+    pub total_us: u64,
+}
+
+impl LatencyBreakdown {
+    /// Sum per-stage microseconds into `total_us`. Call once after a query completes.
+    pub fn finalize(&mut self) {
+        self.total_us = self
+            .embed_us
+            .saturating_add(self.bm25_us)
+            .saturating_add(self.hnsw_us)
+            .saturating_add(self.rerank_us)
+            .saturating_add(self.fuse_us);
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum CorpusError {
     #[error("I/O error: {0}")]
@@ -1054,6 +1080,31 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("must be a string"));
+    }
+
+    #[test]
+    fn latency_breakdown_default_is_zero() {
+        let b = LatencyBreakdown::default();
+        assert_eq!(b.embed_us, 0);
+        assert_eq!(b.bm25_us, 0);
+        assert_eq!(b.hnsw_us, 0);
+        assert_eq!(b.rerank_us, 0);
+        assert_eq!(b.fuse_us, 0);
+        assert_eq!(b.total_us, 0);
+    }
+
+    #[test]
+    fn latency_breakdown_total_is_sum_of_stages() {
+        let mut b = LatencyBreakdown {
+            embed_us: 100,
+            bm25_us: 200,
+            hnsw_us: 300,
+            rerank_us: 400,
+            fuse_us: 50,
+            ..Default::default()
+        };
+        b.finalize();
+        assert_eq!(b.total_us, 1050);
     }
 }
 
