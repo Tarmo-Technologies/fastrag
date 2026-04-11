@@ -15,7 +15,7 @@ Contextualization is opt-in per corpus (overnight cost on CPU), cached in a SQLi
 
 1. Ship `fastrag-context` crate with a `Contextualizer` trait, a `NoContextualizer` default, and a `LlamaCppContextualizer` impl that reuses Step 2's `LlamaServerHandle` pattern.
 2. Extend `fastrag::ops::index_corpus` with a new pipeline stage between chunking and dual-write ingest. Stage is a no-op when the contextualizer is `None` (default).
-3. Persist contextualization results in a SQLite sidecar at `<corpus>/contextualization.sqlite`. Key: `(blake3(raw_text), ctx_version, model_id, prompt_version)`. Value: context text, status (`ok`/`failed`), error, timestamp.
+3. Persist contextualization results in a SQLite sidecar at `<corpus>/contextualization.sqlite`. Key: `(blake3(raw_text), ctx_version, model_id, prompt_version)`. Value: raw text, doc title, context text, status (`ok`/`failed`), error, timestamp. The cache is self-contained — a `--retry-failed` pass can run against the SQLite file alone, without opening the Tantivy or HNSW indexes.
 4. Bump manifest to `index_version: 2`. `HnswIndex::load` hard-errors on older corpora with a clear rebuild message.
 5. Index both dense vectors and Tantivy BM25 over contextualized text. Store raw text as Tantivy's `display_text` (stored, not indexed). Run CVE/CWE regex over raw text only.
 6. CLI gains `--contextualize`, `--context-model <preset>`, `--context-strict`, `--retry-failed` flags on `index`. `corpus-info` and `doctor` gain contextualizer reporting.
@@ -27,7 +27,7 @@ Contextualization is opt-in per corpus (overnight cost on CPU), cached in a SQLi
 - HTTP / OpenAI-compat / CLI-shellout Contextualizer backends. Trait is pluggable to accept them in a follow-up, but the first PR ships `None` + `LlamaCpp` only.
 - Automatic migration of `index_version: 1` corpora. Hard error with a rebuild message.
 - Eval harness or quality-delta measurement. That is Step 6's scope. This PR proves the mechanism works end-to-end, not that it improves hit@5 at scale.
-- Optimized in-place HNSW update for `--retry-failed`. First PR does a full dense rebuild from Tantivy `display_text` when any retry succeeds. Optimization is a follow-up.
+- Optimized in-place HNSW update for `--retry-failed`. First PR does a full dense rebuild from SQLite cache rows when any retry succeeds. Optimization is a follow-up.
 - Late chunking, Self-RAG, FLARE, CRAG (research-doc skip list).
 
 ## Constraints
@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS context (
   ctx_version     INTEGER NOT NULL,
   model_id        TEXT NOT NULL,
   prompt_version  INTEGER NOT NULL,
+  raw_text        TEXT NOT NULL,
+  doc_title       TEXT NOT NULL,    -- empty string for untitled
   context_text    TEXT,
   status          TEXT NOT NULL CHECK(status IN ('ok','failed')),
   error           TEXT,
@@ -115,8 +117,10 @@ PRAGMA synchronous=NORMAL;
 ```
 
 - `chunk_hash` is 32 bytes from `blake3(raw_text)`.
+- `raw_text` and `doc_title` are stored so `--retry-failed` can recover the strings needed to re-call `contextualize(doc_title, raw_text)` without opening the Tantivy or HNSW indexes. This makes the cache a portable artifact — copy the SQLite file to another machine and run the repair pass there.
 - `status='ok'` rows carry a non-null `context_text` and null `error`. `status='failed'` rows carry null `context_text` and a truncated (≤500 char) `error` string.
 - `INSERT OR REPLACE` is used on `put` so a subsequent successful retry overwrites a prior failure cleanly.
+- Rough storage cost: ~2 KB × rows for raw_text, negligible for everything else. A 40k-chunk corpus produces an ~80 MB SQLite file, which is small relative to the multi-GB GGUFs and HNSW indexes the tool already ships around.
 
 ### Manifest additions
 
@@ -142,14 +146,15 @@ PRAGMA synchronous=NORMAL;
 
 ### Tantivy schema changes
 
-Adds two new fields:
+Adds one new field:
 
 - `display_text` — stored, not indexed. Holds the raw chunk text for return to the consumer at query time.
-- `chunk_hash` — stored and indexed as a `STRING` field (exact-match, not tokenized). Holds the hex encoding of `blake3(raw_text)`. Enables `TermQuery(chunk_hash, hex)` → fetch `display_text` during the `--retry-failed` repair pass, which must resolve a cache row back to raw text without re-parsing source documents.
 
 The existing `body` field (indexed for BM25) holds contextualized text when contextualization is enabled, raw text otherwise.
 
 CVE and CWE regex extraction runs over `raw_text`, not over contextualized text. A hallucinated `CVE-2024-99999` in a context prefix must not pollute exact-match lookup.
+
+The repair path (`--retry-failed`) does not touch Tantivy at all — raw text and doc title live in the SQLite cache. This keeps the `fastrag-context` crate free of any Tantivy dependency.
 
 ## Data flow
 
@@ -199,22 +204,20 @@ fastrag index ./docs --corpus ./corpus --contextualize
 
 ```
 fastrag index --corpus ./corpus --retry-failed --contextualize
-  ├─ open existing ContextCache (no docs re-parsed)
+  ├─ open existing ContextCache (no docs re-parsed, no Tantivy/HNSW opened yet)
   ├─ spawn LlamaServerPool { completion:8081 }
-  │    (embedder only spawned if any retry succeeds → rebuild)
   ├─ for row in cache.iter_failed():
-  │    tantivy TermQuery(chunk_hash, hex(row.chunk_hash))
-  │      → (display_text, doc_title)
-  │    llama_ctx.contextualize(doc_title, display_text)
-  │    on ok: cache.put(ok); mark dense/tantivy for rewrite
+  │    llama_ctx.contextualize(row.doc_title, row.raw_text)
+  │    on ok: cache.put(ok, context_text)
   │    on err: leave failed, log
   ├─ if any retries succeeded:
-  │    rebuild dense HNSW from Tantivy display_text (O(corpus), not O(failed))
+  │    open Tantivy + HNSW
+  │    rebuild dense HNSW from cache rows (O(corpus), not O(failed))
   │    rewrite Tantivy body fields for repaired chunks
   └─ print "Repaired 312 of 389 failed chunks (77 still failed)."
 ```
 
-The rebuild is O(corpus) because HNSW does not support cheap in-place updates. This is acceptable for a manual repair path expected to run rarely and against <5% failure rates.
+The rebuild is O(corpus) because HNSW does not support cheap in-place updates. This is acceptable for a manual repair path expected to run rarely and against <5% failure rates. The rebuild reads its inputs from the SQLite cache — every chunk has its `raw_text` and (if successful) its `context_text` stored there, so the rebuild does not need to re-parse source documents or pull text out of Tantivy.
 
 ### Query path
 
@@ -347,6 +350,5 @@ Each step is a separate commit on `main` in the listed order. No worktrees (per 
 2. Is there an existing `ModelSource` entry in `fastrag-embed` for chat-completion GGUFs, or does that enum need a new variant? Likely a new variant — embeddings and completions have different llama-server CLI flags (`--embedding` vs not).
 3. What is the precise prompt text? The Anthropic blog post publishes one; lift it verbatim with attribution and bump `PROMPT_VERSION` only on our own edits.
 4. How does `fastrag-cli`'s existing `index` command hand off to `ops::index_corpus`? The stage insertion point must be verified before the plan is written.
-5. Does Step 4's Tantivy schema already expose a stored `title` (or equivalent) field per chunk? The `--retry-failed` pass needs to recover `doc_title` alongside `display_text` without re-parsing source documents. If the field does not exist, add it as part of the Step 5 schema changes.
 
 These are resolved in the writing-plans phase, not here.
