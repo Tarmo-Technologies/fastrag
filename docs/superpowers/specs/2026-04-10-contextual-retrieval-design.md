@@ -1,6 +1,6 @@
 # Step 5 — Contextual Retrieval (2026-04-10)
 
-**Status:** design approved, pending implementation plan
+**Status:** shipped 2026-04-10 (14 commits on `main`, nightly `contextual-retrieval` job green)
 **Roadmap:** `docs/superpowers/roadmap-2026-04-phase2-rewrite.md` — Phase 2 Step 5
 **Research:** `docs/rag-research-2026-04.md`
 **Depends on:** Step 1 (embedder invariant), Step 2 (llama.cpp backend), Step 3 (reranker), Step 4 (hybrid retrieval via Tantivy)
