@@ -4,6 +4,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::matrix::MatrixReport;
 use crate::{EvalError, EvalResult};
 
 pub const REPORT_SCHEMA_VERSION: u32 = 2;
@@ -108,6 +109,13 @@ pub struct EvalReportEnvelope {
     pub report: EvalReport,
 }
 
+/// Serialize `report` as pretty-printed JSON and write to `path`.
+pub fn write_matrix_report(report: &MatrixReport, path: &Path) -> Result<(), EvalError> {
+    let json = serde_json::to_vec_pretty(report)
+        .map_err(|e| EvalError::Runner(format!("matrix report serialize: {e}")))?;
+    std::fs::write(path, json).map_err(EvalError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +163,25 @@ mod tests {
         assert_eq!(json["top_k"], 10);
         assert_eq!(json["git_rev"], "deadbeef");
         assert_eq!(json["fastrag_version"], "0.0.0-test");
+    }
+
+    #[test]
+    fn write_matrix_report_round_trips_through_json() {
+        use crate::matrix::MatrixReport;
+        let r = MatrixReport {
+            schema_version: 1,
+            git_rev: "abc123".into(),
+            captured_at: "2026-04-11T00:00:00Z".into(),
+            runs: vec![],
+            rerank_delta: 0.08,
+            contextual_delta: 0.11,
+            hybrid_delta: 0.17,
+        };
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        write_matrix_report(&r, tmp.path()).unwrap();
+        let back: MatrixReport =
+            serde_json::from_slice(&std::fs::read(tmp.path()).unwrap()).unwrap();
+        assert_eq!(back.rerank_delta, 0.08);
+        assert_eq!(back.git_rev, "abc123");
     }
 }
