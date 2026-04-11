@@ -36,6 +36,14 @@ pub enum EvalError {
     MissingReportParent { path: PathBuf },
     #[error("histogram error: {0}")]
     Histogram(String),
+    #[error("gold set parse error at {path}: {source}")]
+    GoldSetParse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("gold set validation failed: {0}")]
+    GoldSetInvalid(String),
 }
 
 pub type EvalResult<T> = Result<T, EvalError>;
