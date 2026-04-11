@@ -358,6 +358,36 @@ Hard-fail the ingest on any contextualization error:
 fastrag index ./docs --corpus ./corpus --contextualize --context-strict
 ```
 
+### Eval Harness (optional)
+
+FastRAG ships with a hand-curated gold set and a config matrix for measuring retrieval quality on every retrieval-touching change.
+
+**Gold set location:** `tests/gold/questions.json` — entries with `must_contain_cve_ids` and `must_contain_terms` assertions scored via union-of-top-k.
+
+**Run the full matrix locally:**
+
+```bash
+# Build both corpora (contextualized + raw)
+cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
+  index tests/gold/corpus --corpus /tmp/ctx --embedder qwen3-q8 --contextualize
+
+cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
+  index tests/gold/corpus --corpus /tmp/raw --embedder qwen3-q8
+
+# Run the 4-variant matrix
+cargo run --release --features eval,retrieval,rerank,hybrid,contextual,contextual-llama -- \
+  eval \
+  --gold-set tests/gold/questions.json \
+  --corpus /tmp/ctx \
+  --corpus-no-contextual /tmp/raw \
+  --config-matrix \
+  --report target/eval/matrix.json
+```
+
+**Refresh the baseline:** see `docs/eval-baselines/README.md`.
+
+**CI cadence:** the weekly workflow at `.github/workflows/weekly.yml` runs the matrix on Sundays 06:00 UTC and fails on any hit@5 or MRR@10 regression beyond 2% slack against `docs/eval-baselines/current.json`.
+
 ### Library
 
 ```rust
