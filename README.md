@@ -323,6 +323,41 @@ The HTTP server accepts `?mode=dense-only` to bypass hybrid for a single request
 
 Old corpora indexed before hybrid support load without a Tantivy index and fall back to dense-only with a warning. Re-index to enable BM25.
 
+### Contextual Retrieval (optional)
+
+FastRAG supports Anthropic's Contextual Retrieval technique as an opt-in
+ingest-time stage. A small instruct LLM generates a 50–100 token context
+prefix for each chunk, which is prepended to the chunk text before dense
+embedding and BM25 indexing. Published impact: −49% retrieval failure
+alone, −67% combined with BM25 + reranker.
+
+#### Enable
+
+```bash
+fastrag index ./docs --corpus ./corpus --contextualize
+```
+
+This spawns a second `llama-server` subprocess for the completion model.
+Results are cached in `./corpus/contextualization.sqlite`, so incremental
+re-indexing reuses the cache.
+
+#### Repair failed chunks
+
+If llama-server hiccups during ingest, a small fraction of chunks may
+fall back to raw text. Repair them with:
+
+```bash
+fastrag index --corpus ./corpus --contextualize --retry-failed
+```
+
+#### Strict mode
+
+Hard-fail the ingest on any contextualization error:
+
+```bash
+fastrag index ./docs --corpus ./corpus --contextualize --context-strict
+```
+
 ### Library
 
 ```rust
