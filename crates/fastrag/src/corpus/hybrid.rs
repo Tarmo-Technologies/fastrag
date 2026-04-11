@@ -11,6 +11,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::Instant;
 
 use fastrag_embed::DynEmbedderTrait;
 use fastrag_index::fusion::{ScoredId, rrf_fuse};
@@ -18,7 +19,7 @@ use fastrag_index::identifiers::extract_security_identifiers;
 use fastrag_index::{HnswIndex, IndexEntry, SearchHit, VectorIndex};
 use fastrag_tantivy::TantivyIndex;
 
-use super::CorpusError;
+use super::{CorpusError, LatencyBreakdown};
 
 const RRF_K: u32 = 60;
 const RETRIEVAL_DEPTH: usize = 50;
@@ -93,7 +94,7 @@ impl HybridIndex {
         &mut self.hnsw
     }
 
-    /// 5-stage hybrid query pipeline.
+    /// 5-stage hybrid query pipeline. Convenience wrapper — timing is discarded.
     ///
     /// 1. Extract CVE/CWE identifiers → exact Tantivy lookup
     /// 2. BM25 full-text search (top-50)
@@ -106,20 +107,47 @@ impl HybridIndex {
         query_vector: &[f32],
         top_k: usize,
     ) -> Result<Vec<SearchHit>, CorpusError> {
+        self.query_hybrid_timed(
+            query_text,
+            query_vector,
+            top_k,
+            &mut LatencyBreakdown::default(),
+        )
+    }
+
+    /// Like [`query_hybrid`] but populates `breakdown` with per-stage timings.
+    ///
+    /// Stage 1 (CVE/CWE exact lookup) is a lightweight Tantivy term query on
+    /// the same backend as Stage 2. Its cost is lumped into `bm25_us` rather
+    /// than tracked separately — the two are always coupled and the exact lookup
+    /// is sub-millisecond even on large corpora.
+    pub fn query_hybrid_timed(
+        &self,
+        query_text: &str,
+        query_vector: &[f32],
+        top_k: usize,
+        breakdown: &mut LatencyBreakdown,
+    ) -> Result<Vec<SearchHit>, CorpusError> {
         // If no Tantivy index, fall back to dense-only.
         let Some(ref tantivy) = self.tantivy else {
-            return Ok(self.hnsw.query(query_vector, top_k)?);
+            let t = Instant::now();
+            let results = self.hnsw.query(query_vector, top_k)?;
+            breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+            return Ok(results);
         };
 
-        // Stage 1: CVE/CWE exact lookup
+        // Stage 1 + 2: CVE/CWE exact lookup + BM25 (both hit Tantivy; lumped into bm25_us)
+        let t = Instant::now();
         let security_ids = extract_security_identifiers(query_text);
         let exact_scored = tantivy.exact_lookup(&security_ids)?;
-
-        // Stage 2: BM25 full-text search
         let bm25_scored = tantivy.bm25_search(query_text, RETRIEVAL_DEPTH)?;
+        breakdown.bm25_us = t.elapsed().as_micros() as u64;
 
         // Stage 3: Dense HNSW search
+        let t = Instant::now();
         let dense_hits = self.hnsw.query(query_vector, RETRIEVAL_DEPTH)?;
+        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+
         let dense_scored: Vec<ScoredId> = dense_hits
             .iter()
             .map(|h| ScoredId {
@@ -129,7 +157,9 @@ impl HybridIndex {
             .collect();
 
         // Stage 4: RRF fusion
+        let t = Instant::now();
         let fused = rrf_fuse(&[&bm25_scored, &dense_scored], RRF_K);
+        breakdown.fuse_us = t.elapsed().as_micros() as u64;
 
         // Stage 5: Prepend exact hits (deduplicated), then fused results
         let mut seen = HashSet::new();

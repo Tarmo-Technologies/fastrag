@@ -268,6 +268,7 @@ fn run_query(
                         state.embedder.as_ref() as &dyn DynEmbedderTrait,
                         reranker.as_ref(),
                         filter_map,
+                        &mut fastrag::corpus::LatencyBreakdown::default(),
                     )
                 }
                 #[cfg(not(feature = "hybrid"))]
@@ -297,6 +298,7 @@ fn run_query(
                 params.top_k,
                 state.embedder.as_ref() as &dyn DynEmbedderTrait,
                 filter_map,
+                &mut fastrag::corpus::LatencyBreakdown::default(),
             )
         }
         #[cfg(not(feature = "hybrid"))]

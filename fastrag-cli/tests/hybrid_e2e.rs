@@ -109,12 +109,14 @@ fn hybrid_query_prepends_cve_exact_hit() {
 
     let embedder = MockEmbedder;
     let filter = BTreeMap::new();
+    let mut breakdown = fastrag::corpus::LatencyBreakdown::default();
     let hits = ops::query_corpus_hybrid(
         dir.path(),
         "CVE-2024-1234",
         5,
         &embedder as &dyn DynEmbedderTrait,
         &filter,
+        &mut breakdown,
     )
     .unwrap();
 
@@ -138,12 +140,50 @@ fn hybrid_query_bm25_boosts_keyword_match() {
         5,
         &embedder as &dyn DynEmbedderTrait,
         &filter,
+        &mut fastrag::corpus::LatencyBreakdown::default(),
     )
     .unwrap();
 
     assert!(!hits.is_empty());
     let has_rust = hits.iter().any(|h| h.entry.id == 2);
     assert!(has_rust, "BM25 should surface the Rust-heavy document");
+}
+
+#[test]
+fn latency_breakdown_threaded_through_query_corpus_hybrid() {
+    let dir = tempdir().unwrap();
+    build_test_corpus(dir.path());
+
+    let embedder = MockEmbedder;
+    let filter = BTreeMap::new();
+    let mut breakdown = fastrag::corpus::LatencyBreakdown::default();
+    let hits = ops::query_corpus_hybrid(
+        dir.path(),
+        "Rust programming",
+        5,
+        &embedder as &dyn DynEmbedderTrait,
+        &filter,
+        &mut breakdown,
+    )
+    .unwrap();
+
+    assert!(!hits.is_empty());
+    // Embed stage must have fired
+    assert!(breakdown.embed_us > 0, "embed_us should be non-zero");
+    // BM25 and HNSW must have fired (hybrid path, not dense-only fallback)
+    assert!(breakdown.bm25_us > 0, "bm25_us should be non-zero");
+    assert!(breakdown.hnsw_us > 0, "hnsw_us should be non-zero");
+    // total_us must equal the sum of all stages (finalize semantics)
+    assert_eq!(
+        breakdown.total_us,
+        breakdown.embed_us
+            + breakdown.bm25_us
+            + breakdown.hnsw_us
+            + breakdown.rerank_us
+            + breakdown.fuse_us,
+        "total_us must equal sum of per-stage fields"
+    );
+    assert!(breakdown.total_us > 0, "total_us should be non-zero");
 }
 
 #[test]
