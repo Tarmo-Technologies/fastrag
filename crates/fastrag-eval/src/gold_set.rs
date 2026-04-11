@@ -37,8 +37,7 @@ pub struct EntryScore {
     pub missing_terms: Vec<String>,
 }
 
-static CVE_ID_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^CVE-\d{4}-\d+$").unwrap());
+static CVE_ID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^CVE-\d{4}-\d+$").unwrap());
 
 pub fn load(path: &Path) -> Result<GoldSet, EvalError> {
     let bytes = std::fs::read(path).map_err(EvalError::from)?;
@@ -91,8 +90,7 @@ fn validate(gs: &GoldSet) -> Result<(), EvalError> {
     Ok(())
 }
 
-static CVE_FIND_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)CVE-\d{4}-\d+").unwrap());
+static CVE_FIND_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)CVE-\d{4}-\d+").unwrap());
 
 pub fn score_entry(entry: &GoldSetEntry, top_k_chunks: &[&str]) -> EntryScore {
     let mut hit_at_1 = false;
@@ -190,12 +188,14 @@ mod tests {
 
     #[test]
     fn load_accepts_well_formed_gold_set() {
-        let f = write_fixture(r#"{
+        let f = write_fixture(
+            r#"{
             "version": 1,
             "entries": [
                 {"id": "q001", "question": "x?", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": []}
             ]
-        }"#);
+        }"#,
+        );
         let gs = load(f.path()).expect("valid gold set should load");
         assert_eq!(gs.entries.len(), 1);
         assert_eq!(gs.entries[0].id, "q001");
@@ -203,27 +203,37 @@ mod tests {
 
     #[test]
     fn load_rejects_empty_question() {
-        let f = write_fixture(r#"{
+        let f = write_fixture(
+            r#"{
             "version": 1,
             "entries": [
                 {"id": "q001", "question": "", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": []}
             ]
-        }"#);
+        }"#,
+        );
         let err = load(f.path()).unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("q001"), "error must name offending id, got: {msg}");
-        assert!(msg.contains("empty question"), "error must say 'empty question', got: {msg}");
+        assert!(
+            msg.contains("q001"),
+            "error must name offending id, got: {msg}"
+        );
+        assert!(
+            msg.contains("empty question"),
+            "error must say 'empty question', got: {msg}"
+        );
     }
 
     #[test]
     fn load_rejects_duplicate_id() {
-        let f = write_fixture(r#"{
+        let f = write_fixture(
+            r#"{
             "version": 1,
             "entries": [
                 {"id": "q001", "question": "a?", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": []},
                 {"id": "q001", "question": "b?", "must_contain_cve_ids": ["CVE-2024-2"], "must_contain_terms": []}
             ]
-        }"#);
+        }"#,
+        );
         let err = load(f.path()).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("duplicate"), "got: {msg}");
@@ -232,24 +242,28 @@ mod tests {
 
     #[test]
     fn load_rejects_malformed_cve_id() {
-        let f = write_fixture(r#"{
+        let f = write_fixture(
+            r#"{
             "version": 1,
             "entries": [
                 {"id": "q001", "question": "x?", "must_contain_cve_ids": ["CVE-24-1"], "must_contain_terms": []}
             ]
-        }"#);
+        }"#,
+        );
         let err = load(f.path()).unwrap_err();
         assert!(format!("{err}").contains("CVE-24-1"));
     }
 
     #[test]
     fn load_rejects_zero_assertions() {
-        let f = write_fixture(r#"{
+        let f = write_fixture(
+            r#"{
             "version": 1,
             "entries": [
                 {"id": "q001", "question": "x?", "must_contain_cve_ids": [], "must_contain_terms": []}
             ]
-        }"#);
+        }"#,
+        );
         let err = load(f.path()).unwrap_err();
         assert!(format!("{err}").contains("no must_contain"));
     }
@@ -267,10 +281,7 @@ mod tests {
     #[test]
     fn score_entry_hit_at_1_when_first_chunk_satisfies() {
         let e = entry(&["CVE-2024-1"], &["libfoo"]);
-        let chunks = vec![
-            "advisory for libfoo mentions CVE-2024-1",
-            "unrelated",
-        ];
+        let chunks = vec!["advisory for libfoo mentions CVE-2024-1", "unrelated"];
         let s = score_entry(&e, &chunks);
         assert!(s.hit_at_1);
         assert!(s.hit_at_5);
@@ -326,8 +337,10 @@ mod tests {
     #[test]
     fn tests_gold_questions_json_is_valid() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
-            .parent().unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
             .join("tests/gold/questions.json");
         let gs = load(&path).expect("tests/gold/questions.json must validate");
         assert!(
