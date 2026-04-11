@@ -2,17 +2,17 @@
 
 use std::path::PathBuf;
 
+use fastrag_cli::args::RerankerKindArg;
+use fastrag_cli::embed_loader::{self, EmbedderOptions};
+use fastrag_cli::rerank_loader;
 use fastrag_eval::{
+    EvalError,
     baseline::{diff, load_baseline},
     gold_set,
     matrix::run_matrix,
     matrix_real::RealCorpusDriver,
     write_matrix_report,
-    EvalError,
 };
-use fastrag_cli::embed_loader::{self, EmbedderOptions};
-use fastrag_cli::args::RerankerKindArg;
-use fastrag_cli::rerank_loader;
 
 pub fn run_config_matrix(
     gold_set_path: Option<PathBuf>,
@@ -23,9 +23,8 @@ pub fn run_config_matrix(
     baseline_path: Option<PathBuf>,
 ) -> Result<(), EvalError> {
     let gs_path = gold_set_path.ok_or(EvalError::MatrixRequiresGoldSet)?;
-    let ctx_corpus = corpus.ok_or_else(|| {
-        EvalError::GoldSetInvalid("--config-matrix requires --corpus".into())
-    })?;
+    let ctx_corpus = corpus
+        .ok_or_else(|| EvalError::GoldSetInvalid("--config-matrix requires --corpus".into()))?;
     let raw_corpus = corpus_no_contextual.ok_or(EvalError::MatrixMissingRawCorpus)?;
 
     let gs = gold_set::load(&gs_path)?;

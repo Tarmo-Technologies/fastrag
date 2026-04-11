@@ -22,8 +22,7 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
         return;
     }
 
-    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/eval_mini");
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval_mini");
     let corpus_src = fixture_dir.join("corpus");
     let questions = fixture_dir.join("questions.json");
 
@@ -92,7 +91,9 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
             "hit_at_5 must be in [0,1], got {hit5}"
         );
 
-        let per_q = run["per_question"].as_array().expect("per_question must be array");
+        let per_q = run["per_question"]
+            .as_array()
+            .expect("per_question must be array");
         assert_eq!(per_q.len(), 10, "each variant must score all 10 questions");
 
         let p50 = run["latency"]["total"]["p50_us"]
@@ -101,14 +102,21 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
         assert!(p50 > 0, "p50_us must be > 0, got {p50}");
     }
 
-    let rerank_delta = report["rerank_delta"].as_f64().expect("rerank_delta must be f64");
+    let rerank_delta = report["rerank_delta"]
+        .as_f64()
+        .expect("rerank_delta must be f64");
     assert!(rerank_delta.is_finite(), "rerank_delta must be finite");
 
     let contextual_delta = report["contextual_delta"]
         .as_f64()
         .expect("contextual_delta must be f64");
-    assert!(contextual_delta.is_finite(), "contextual_delta must be finite");
+    assert!(
+        contextual_delta.is_finite(),
+        "contextual_delta must be finite"
+    );
 
-    let hybrid_delta = report["hybrid_delta"].as_f64().expect("hybrid_delta must be f64");
+    let hybrid_delta = report["hybrid_delta"]
+        .as_f64()
+        .expect("hybrid_delta must be f64");
     assert!(hybrid_delta.is_finite(), "hybrid_delta must be finite");
 }
