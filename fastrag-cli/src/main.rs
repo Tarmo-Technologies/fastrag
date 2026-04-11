@@ -1,6 +1,8 @@
 mod doctor;
 #[cfg(feature = "eval")]
 mod eval;
+#[cfg(feature = "eval")]
+mod eval_matrix;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -474,8 +476,25 @@ async fn main() {
             max_rss_mb,
             max_docs,
             max_queries,
+            gold_set,
+            corpus,
+            corpus_no_contextual,
+            config_matrix,
+            baseline,
         } => {
-            if let Err(e) = eval::run_eval(
+            if config_matrix {
+                if let Err(e) = eval_matrix::run_config_matrix(
+                    gold_set,
+                    corpus,
+                    corpus_no_contextual,
+                    report,
+                    top_k,
+                    baseline,
+                ) {
+                    eprintln!("Error running eval matrix: {e}");
+                    std::process::exit(1);
+                }
+            } else if let Err(e) = eval::run_eval(
                 dataset,
                 dataset_name,
                 report,
