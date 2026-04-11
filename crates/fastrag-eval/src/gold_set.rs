@@ -322,4 +322,18 @@ mod tests {
         let s2 = score_entry(&e, &chunks);
         assert_eq!(s1, s2);
     }
+
+    #[test]
+    fn tests_gold_questions_json_is_valid() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .parent().unwrap()
+            .join("tests/gold/questions.json");
+        let gs = load(&path).expect("tests/gold/questions.json must validate");
+        assert!(
+            gs.entries.len() >= 10,
+            "starter gold set must have at least 10 entries, found {}",
+            gs.entries.len()
+        );
+    }
 }

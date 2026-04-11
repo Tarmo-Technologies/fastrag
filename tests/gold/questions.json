@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "q001",
+      "question": "Is there a known RCE in libfoo?",
+      "must_contain_cve_ids": ["CVE-2024-12345"],
+      "must_contain_terms": ["libfoo", "remote code execution"],
+      "notes": "Pronoun-resolution canary — chunk body says 'the vulnerability'"
+    },
+    {
+      "id": "q002",
+      "question": "What CVE covers the BlueKeep RDP flaw?",
+      "must_contain_cve_ids": ["CVE-2019-0708"],
+      "must_contain_terms": ["BlueKeep", "RDP"],
+      "notes": null
+    },
+    {
+      "id": "q003",
+      "question": "How can SSRF be exploited against the proxy middleware?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["SSRF", "proxy", "mitigation"],
+      "notes": "Concept lookup"
+    },
+    {
+      "id": "q004",
+      "question": "What weakness does CWE-502 describe?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["deserialization", "untrusted data"],
+      "notes": "CWE concept lookup"
+    },
+    {
+      "id": "q005",
+      "question": "Which advisory describes the libfoo buffer overflow?",
+      "must_contain_cve_ids": ["CVE-2024-12345"],
+      "must_contain_terms": ["buffer overflow"],
+      "notes": null
+    },
+    {
+      "id": "q006",
+      "question": "What year was BlueKeep disclosed?",
+      "must_contain_cve_ids": ["CVE-2019-0708"],
+      "must_contain_terms": ["2019"],
+      "notes": null
+    },
+    {
+      "id": "q007",
+      "question": "Is SSRF mitigated by allowlist?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["SSRF", "allowlist"],
+      "notes": null
+    },
+    {
+      "id": "q008",
+      "question": "How does CWE-502 relate to gadget chains?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["CWE-502", "gadget"],
+      "notes": null
+    },
+    {
+      "id": "q009",
+      "question": "What is the impact of the libfoo vulnerability?",
+      "must_contain_cve_ids": ["CVE-2024-12345"],
+      "must_contain_terms": ["impact"],
+      "notes": "Requires context prefix — chunk body never says 'libfoo'"
+    },
+    {
+      "id": "q010",
+      "question": "Which CVE affects Microsoft Remote Desktop Services pre-authentication?",
+      "must_contain_cve_ids": ["CVE-2019-0708"],
+      "must_contain_terms": ["pre-authentication"],
+      "notes": null
+    }
+  ]
+}
