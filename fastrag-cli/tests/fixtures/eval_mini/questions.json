@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "q001",
+      "question": "What CVE allows remote code execution in libfoo via a crafted config file?",
+      "must_contain_cve_ids": ["CVE-2024-12345"],
+      "must_contain_terms": ["libfoo"],
+      "notes": "Should hit 01-libfoo.md"
+    },
+    {
+      "id": "q002",
+      "question": "What vulnerability is triggered during startup when libfoo parses a TOML header?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["libfoo", "TOML"],
+      "notes": "Should hit 01-libfoo.md"
+    },
+    {
+      "id": "q003",
+      "question": "How does an attacker exploit SSRF in proxy middleware to reach internal services?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["SSRF", "proxy"],
+      "notes": "Should hit 02-ssrf.md"
+    },
+    {
+      "id": "q004",
+      "question": "What mitigation prevents server-side request forgery via outbound URL forwarding?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["allowlist", "SSRF"],
+      "notes": "Should hit 02-ssrf.md"
+    },
+    {
+      "id": "q005",
+      "question": "What is a gadget chain in the context of Java deserialization attacks?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["gadget chain", "deserialization"],
+      "notes": "Should hit 03-deserialize.md"
+    },
+    {
+      "id": "q006",
+      "question": "Which CWE describes deserialization of untrusted data and how is it mitigated?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["CWE-502", "allowlist"],
+      "notes": "Should hit 03-deserialize.md"
+    },
+    {
+      "id": "q007",
+      "question": "What CVE tracks the wormable pre-authentication RCE in Microsoft Remote Desktop Services?",
+      "must_contain_cve_ids": ["CVE-2019-0708"],
+      "must_contain_terms": [],
+      "notes": "Should hit 04-bluekeep.md"
+    },
+    {
+      "id": "q008",
+      "question": "Is BlueKeep listed in the CISA Known Exploited Vulnerabilities catalog?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["BlueKeep", "KEV"],
+      "notes": "Should hit 04-bluekeep.md"
+    },
+    {
+      "id": "q009",
+      "question": "How does a path traversal attack using dot-dot-slash sequences read arbitrary files?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["path traversal", "canonicalisation"],
+      "notes": "Should hit 05-pathtraversal.md"
+    },
+    {
+      "id": "q010",
+      "question": "What CWE covers directory traversal vulnerabilities and what mitigation is recommended?",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["CWE-22", "canonical"],
+      "notes": "Should hit 05-pathtraversal.md"
+    }
+  ]
+}
