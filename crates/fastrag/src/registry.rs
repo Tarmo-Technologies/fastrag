@@ -1,17 +1,21 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use fastrag_core::{Document, Element, FastRagError, FileFormat, Parser, SourceInfo};
+use fastrag_core::{
+    Document, Element, FastRagError, FileFormat, MultiDocParser, Parser, SourceInfo,
+};
 
 /// Registry that maps file formats to their parsers and handles dispatch.
 pub struct ParserRegistry {
     parsers: HashMap<FileFormat, Box<dyn Parser>>,
+    multi_parsers: HashMap<FileFormat, Box<dyn MultiDocParser>>,
 }
 
 impl Default for ParserRegistry {
     fn default() -> Self {
         let mut registry = Self {
             parsers: HashMap::new(),
+            multi_parsers: HashMap::new(),
         };
 
         #[cfg(feature = "text")]
@@ -50,6 +54,9 @@ impl Default for ParserRegistry {
         #[cfg(feature = "email")]
         registry.register(Box::new(fastrag_email::EmailParser));
 
+        #[cfg(feature = "nvd")]
+        registry.register_multi(FileFormat::NvdFeed, Box::new(fastrag_nvd::NvdFeedParser));
+
         registry
     }
 }
@@ -58,6 +65,7 @@ impl ParserRegistry {
     pub fn new() -> Self {
         Self {
             parsers: HashMap::new(),
+            multi_parsers: HashMap::new(),
         }
     }
 
@@ -72,6 +80,16 @@ impl ParserRegistry {
         if let Some(format) = formats.into_iter().next() {
             self.parsers.insert(format, parser);
         }
+    }
+
+    /// Register a multi-doc parser for a specific format.
+    pub fn register_multi(&mut self, format: FileFormat, parser: Box<dyn MultiDocParser>) {
+        self.multi_parsers.insert(format, parser);
+    }
+
+    /// Return the multi-doc parser for a format if one is registered.
+    pub fn get_multi(&self, format: FileFormat) -> Option<&dyn MultiDocParser> {
+        self.multi_parsers.get(&format).map(|p| p.as_ref())
     }
 
     /// List all supported formats.

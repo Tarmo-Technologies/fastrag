@@ -232,13 +232,25 @@ pub fn collect_files(dir: &Path) -> Vec<PathBuf> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
+                // Skip metadata sidecar files (.meta.json) — they are consumed
+                // by load_documents as metadata overlays, not as content.
+                let is_sidecar = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.ends_with(".meta.json"))
+                    .unwrap_or(false);
+                if is_sidecar {
+                    continue;
+                }
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     let format = FileFormat::detect(&path, &[]);
                     if format != FileFormat::Unknown {
                         files.push(path);
                         continue;
                     }
-                    if matches!(
+                    // `json` is included when the nvd feature is active so that
+                    // NVD 2.0 feed files (which use .json extension) are walked.
+                    let is_known_ext = matches!(
                         ext.to_lowercase().as_str(),
                         "pdf"
                             | "html"
@@ -256,7 +268,10 @@ pub fn collect_files(dir: &Path) -> Vec<PathBuf> {
                             | "epub"
                             | "rtf"
                             | "eml"
-                    ) {
+                    );
+                    #[cfg(feature = "nvd")]
+                    let is_known_ext = is_known_ext || ext.to_lowercase() == "json";
+                    if is_known_ext {
                         files.push(path);
                     }
                 }

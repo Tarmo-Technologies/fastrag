@@ -296,57 +296,7 @@ pub fn index_path_with_metadata(
     let mut contextualize_totals = ContextualizeStats::default();
 
     for wf in &to_embed {
-        let doc = load_document(&wf.abs_path)?;
-        #[allow(unused_mut)]
-        let mut chunks = chunk_document(&doc, chunking);
-
-        // Contextualization stage: feature-gated, runs after chunking and
-        // before embedding. Mutates each `Chunk` in place so the later
-        // embedder call can read `contextualized_text` when present.
-        #[cfg(feature = "contextual")]
-        if let Some(opts) = contextualize.as_mut() {
-            let doc_title: String = doc_title_from(&doc).unwrap_or_default();
-            let stats = fastrag_context::run_contextualize_stage(
-                opts.contextualizer,
-                opts.cache,
-                &doc_title,
-                &mut chunks,
-                opts.strict,
-            )
-            .map_err(|e| CorpusError::Embed(format!("contextualize: {e}")))?;
-            contextualize_totals.ok += stats.ok;
-            contextualize_totals.fallback += stats.failed;
-        }
-
-        let texts: Vec<&str> = chunks
-            .iter()
-            .map(|c| {
-                #[cfg(feature = "contextual")]
-                {
-                    c.contextualized_text.as_deref().unwrap_or(c.text.as_str())
-                }
-                #[cfg(not(feature = "contextual"))]
-                {
-                    c.text.as_str()
-                }
-            })
-            .collect();
-        let vectors: Vec<_> = if chunks.is_empty() {
-            Vec::new()
-        } else {
-            use fastrag_embed::PassageText;
-            let owned: Vec<PassageText> = texts.iter().map(|t| PassageText::new(*t)).collect();
-            let vectors = embedder
-                .embed_passage_dyn(&owned)
-                .map_err(|e| CorpusError::Embed(e.to_string()))?;
-            if vectors.len() != chunks.len() {
-                return Err(CorpusError::EmbeddingOutputMismatch {
-                    expected: chunks.len(),
-                    got: vectors.len(),
-                });
-            }
-            vectors
-        };
+        let docs = load_documents(&wf.abs_path)?;
 
         let mut file_metadata = base_metadata.clone();
         let sidecar = sidecar_path_for(&wf.abs_path);
@@ -354,55 +304,133 @@ pub fn index_path_with_metadata(
             file_metadata.extend(load_metadata_sidecar(&sidecar)?);
         }
 
-        let mut chunk_ids = Vec::with_capacity(chunks.len());
-        let entries: Vec<IndexEntry> = chunks
-            .into_iter()
-            .zip(vectors.into_iter())
-            .map(|(chunk, vector)| {
-                let id = next_id;
-                next_id += 1;
-                chunk_ids.push(id);
-                // When contextualization produced a prefixed form, the
-                // indexed body is that prefixed text and the display/raw
-                // text is preserved separately. Otherwise chunk_text holds
-                // raw text directly and display_text is None.
-                #[allow(unused_mut)]
-                let mut display_text: Option<String> = None;
-                #[allow(unused_mut)]
-                let mut chunk_text: String = chunk.text.clone();
-                #[cfg(feature = "contextual")]
-                if let Some(ctx) = chunk.contextualized_text.as_ref() {
-                    display_text = Some(chunk.text.clone());
-                    chunk_text = ctx.clone();
+        let mut chunk_ids = Vec::new();
+
+        for doc in &docs {
+            // Merge per-document extra metadata (e.g. CVE fields from NVD) into
+            // the file-level metadata so that chunk index entries carry it.
+            let mut doc_metadata = file_metadata.clone();
+            doc_metadata.extend(doc.metadata.extra.clone());
+
+            // Stable source path: for multi-doc feeds, suffix with the CVE id
+            // so each CVE chunk has a unique, stable identity in the manifest.
+            let source_path = if docs.len() > 1 {
+                if let Some(cve_id) = doc.metadata.extra.get("cve_id") {
+                    wf.abs_path.with_file_name(format!(
+                        "{}#{}",
+                        wf.abs_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy(),
+                        cve_id
+                    ))
+                } else {
+                    wf.abs_path.clone()
                 }
-                IndexEntry {
-                    id,
-                    vector,
-                    chunk_text,
-                    source_path: wf.abs_path.clone(),
-                    chunk_index: chunk.index,
-                    section: chunk.section.clone(),
-                    element_kinds: chunk.elements.iter().map(|e| e.kind.clone()).collect(),
-                    pages: chunk
-                        .elements
-                        .iter()
-                        .filter_map(|e| e.page)
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect(),
-                    language: chunk_language(&doc, &chunk),
-                    metadata: file_metadata.clone(),
-                    display_text,
-                }
-            })
-            .collect();
-        chunks_added += entries.len();
-        if !entries.is_empty() {
-            #[cfg(feature = "hybrid")]
-            if let Some(ref tantivy) = tantivy {
-                tantivy.add_entries(&entries)?;
+            } else {
+                wf.abs_path.clone()
+            };
+
+            #[allow(unused_mut)]
+            let mut chunks = chunk_document(doc, chunking);
+
+            // Contextualization stage: feature-gated, runs after chunking and
+            // before embedding. Mutates each `Chunk` in place so the later
+            // embedder call can read `contextualized_text` when present.
+            #[cfg(feature = "contextual")]
+            if let Some(opts) = contextualize.as_mut() {
+                let doc_title: String = doc_title_from(doc).unwrap_or_default();
+                let stats = fastrag_context::run_contextualize_stage(
+                    opts.contextualizer,
+                    opts.cache,
+                    &doc_title,
+                    &mut chunks,
+                    opts.strict,
+                )
+                .map_err(|e| CorpusError::Embed(format!("contextualize: {e}")))?;
+                contextualize_totals.ok += stats.ok;
+                contextualize_totals.fallback += stats.failed;
             }
-            index.add(entries)?;
+
+            let texts: Vec<&str> = chunks
+                .iter()
+                .map(|c| {
+                    #[cfg(feature = "contextual")]
+                    {
+                        c.contextualized_text.as_deref().unwrap_or(c.text.as_str())
+                    }
+                    #[cfg(not(feature = "contextual"))]
+                    {
+                        c.text.as_str()
+                    }
+                })
+                .collect();
+            let vectors: Vec<_> = if chunks.is_empty() {
+                Vec::new()
+            } else {
+                use fastrag_embed::PassageText;
+                let owned: Vec<PassageText> = texts.iter().map(|t| PassageText::new(*t)).collect();
+                let vectors = embedder
+                    .embed_passage_dyn(&owned)
+                    .map_err(|e| CorpusError::Embed(e.to_string()))?;
+                if vectors.len() != chunks.len() {
+                    return Err(CorpusError::EmbeddingOutputMismatch {
+                        expected: chunks.len(),
+                        got: vectors.len(),
+                    });
+                }
+                vectors
+            };
+
+            let entries: Vec<IndexEntry> = chunks
+                .into_iter()
+                .zip(vectors.into_iter())
+                .map(|(chunk, vector)| {
+                    let id = next_id;
+                    next_id += 1;
+                    chunk_ids.push(id);
+                    // When contextualization produced a prefixed form, the
+                    // indexed body is that prefixed text and the display/raw
+                    // text is preserved separately. Otherwise chunk_text holds
+                    // raw text directly and display_text is None.
+                    #[allow(unused_mut)]
+                    let mut display_text: Option<String> = None;
+                    #[allow(unused_mut)]
+                    let mut chunk_text: String = chunk.text.clone();
+                    #[cfg(feature = "contextual")]
+                    if let Some(ctx) = chunk.contextualized_text.as_ref() {
+                        display_text = Some(chunk.text.clone());
+                        chunk_text = ctx.clone();
+                    }
+                    IndexEntry {
+                        id,
+                        vector,
+                        chunk_text,
+                        source_path: source_path.clone(),
+                        chunk_index: chunk.index,
+                        section: chunk.section.clone(),
+                        element_kinds: chunk.elements.iter().map(|e| e.kind.clone()).collect(),
+                        pages: chunk
+                            .elements
+                            .iter()
+                            .filter_map(|e| e.page)
+                            .collect::<BTreeSet<_>>()
+                            .into_iter()
+                            .collect(),
+                        language: chunk_language(doc, &chunk),
+                        metadata: doc_metadata.clone(),
+                        display_text,
+                    }
+                })
+                .collect();
+            chunks_added += entries.len();
+            if !entries.is_empty() {
+                #[cfg(feature = "hybrid")]
+                if let Some(ref tantivy) = tantivy {
+                    tantivy.add_entries(&entries)?;
+                }
+                index.add(entries)?;
+            }
         }
 
         let content_hash = Some(fastrag_index::hash::hash_file(&wf.abs_path)?);
@@ -931,6 +959,44 @@ fn load_document(path: &Path) -> Result<Document, CorpusError> {
     }
 
     Ok(doc)
+}
+
+/// Load one or more documents from a path.
+///
+/// If the path's format has a registered multi-doc parser (e.g. NVD feed),
+/// returns all documents it emits. Otherwise wraps the single-doc result in
+/// a `Vec` so callers always work with a uniform `Vec<Document>`.
+fn load_documents(path: &Path) -> Result<Vec<Document>, CorpusError> {
+    use crate::registry::ParserRegistry;
+    use fastrag_core::FileFormat;
+
+    let registry = ParserRegistry::default();
+
+    // Sniff format from first bytes.
+    let first_bytes = {
+        use std::io::Read;
+        let mut f = std::fs::File::open(path).map_err(CorpusError::Io)?;
+        let mut buf = [0u8; 512];
+        let n = f.read(&mut buf).map_err(CorpusError::Io)?;
+        buf[..n].to_vec()
+    };
+    let format = FileFormat::detect(path, &first_bytes);
+
+    if let Some(multi) = registry.get_multi(format) {
+        let docs = multi.parse_all(path).map_err(CorpusError::Parse)?;
+        return Ok(docs);
+    }
+
+    // Unknown format: produce no documents (file is not parseable).
+    // This can happen for .json files that are not NVD feeds when the nvd
+    // feature is active — walk includes them but they should be silently skipped.
+    if format == fastrag_core::FileFormat::Unknown {
+        return Ok(vec![]);
+    }
+
+    // Single-doc path: preserve existing behaviour.
+    let doc = load_document(path)?;
+    Ok(vec![doc])
 }
 
 #[cfg(feature = "contextual")]
