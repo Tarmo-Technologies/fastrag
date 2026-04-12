@@ -9,8 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../crates/fastrag-nvd/fixtures/nvd_slice.json")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/fastrag-nvd/fixtures/nvd_slice.json")
 }
 
 fn fastrag_bin() -> std::path::PathBuf {

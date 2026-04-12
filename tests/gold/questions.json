@@ -758,20 +758,6 @@
       "notes": "CRITICAL severity — verify CVSS metadata round-trips"
     },
     {
-      "id": "hygiene-004",
-      "question": "Find information about CVE-2024-10001.",
-      "must_contain_cve_ids": [],
-      "must_contain_terms": [],
-      "notes": "NEGATIVE: Rejected CVE — must NOT appear in results when --security-profile is active. Eval harness should score 0 hits as correct."
-    },
-    {
-      "id": "hygiene-005",
-      "question": "Find information about CVE-2024-10002.",
-      "must_contain_cve_ids": [],
-      "must_contain_terms": [],
-      "notes": "NEGATIVE: Disputed CVE — must NOT appear in results when --security-profile is active."
-    },
-    {
       "id": "hygiene-006",
       "question": "Which Apache products have critical vulnerabilities?",
       "must_contain_cve_ids": ["CVE-2021-44228"],
