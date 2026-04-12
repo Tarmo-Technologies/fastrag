@@ -1,5 +1,7 @@
 #[cfg(feature = "retrieval")]
 pub mod corpus;
+#[cfg(feature = "hygiene")]
+pub mod hygiene;
 pub mod ops;
 pub mod registry;
 

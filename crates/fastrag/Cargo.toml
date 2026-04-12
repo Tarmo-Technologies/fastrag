@@ -29,6 +29,7 @@ fastrag-tantivy = { workspace = true, optional = true }
 fastrag-context = { workspace = true, optional = true }
 fastrag-nvd = { workspace = true, optional = true }
 blake3 = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -68,3 +69,4 @@ hybrid = ["retrieval", "dep:fastrag-tantivy"]
 contextual = ["retrieval", "dep:fastrag-context", "dep:blake3"]
 contextual-llama = ["contextual", "fastrag-context/llama-cpp"]
 nvd = ["dep:fastrag-nvd"]
+hygiene = ["language-detection", "fastrag-core/language-detection", "dep:regex"]
