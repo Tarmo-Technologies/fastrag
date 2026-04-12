@@ -54,7 +54,7 @@ impl GteModernBertReranker {
             .map_err(|e| RerankError::Model(format!("ORT session builder: {e}")))?
             .with_execution_providers([ort::ep::CPU::default().build()])
             .map_err(|e| RerankError::Model(format!("ORT CPU provider: {e}")))?
-            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .with_optimization_level(GraphOptimizationLevel::Level1)
             .map_err(|e| RerankError::Model(format!("ORT optimization level: {e}")))?
             .commit_from_file(&model_path)
             .map_err(|e| RerankError::Model(format!("ORT load model: {e}")))?;
@@ -71,13 +71,30 @@ impl GteModernBertReranker {
         Self::load(&model_dir)
     }
 
+    /// Maximum pairs per ORT inference call. Caps peak activation memory
+    /// so the 149M-param modernbert model stays within ~2G even on long sequences.
+    const MICRO_BATCH: usize = 8;
+
     /// Score a batch of (query, passage) pairs. Returns one score per pair.
+    ///
+    /// Internally micro-batches to cap ORT peak memory (see [`Self::MICRO_BATCH`]).
     fn score_pairs(&self, query: &str, passages: &[&str]) -> Result<Vec<f32>, RerankError> {
         if passages.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Build tokenizer input: each pair is (query, passage)
+        let mut all_scores = Vec::with_capacity(passages.len());
+
+        for chunk in passages.chunks(Self::MICRO_BATCH) {
+            let batch_scores = self.score_pairs_batch(query, chunk)?;
+            all_scores.extend(batch_scores);
+        }
+
+        Ok(all_scores)
+    }
+
+    /// Score a single micro-batch of (query, passage) pairs.
+    fn score_pairs_batch(&self, query: &str, passages: &[&str]) -> Result<Vec<f32>, RerankError> {
         let pairs: Vec<_> = passages
             .iter()
             .map(|passage| {

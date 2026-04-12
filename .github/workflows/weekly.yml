@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/fastrag/models
-          key: gguf-qwen3-embed-600m-q8-qwen3-4b-instruct-2507-q4km
+          key: gguf-qwen3-embed-600m-q8-qwen3-4b-instruct-2507-q4km-bge-reranker-v2-m3-q8
 
       - name: Download embedder GGUF
         run: |
@@ -78,19 +78,13 @@ jobs:
             curl -fsSL "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/$MODEL_FILE" -o "$MODEL_DIR/$MODEL_FILE"
           fi
 
-      - name: Cache ONNX reranker
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/fastrag/models/gte-reranker-modernbert-base
-          key: onnx-gte-reranker-modernbert-base
-
-      - name: Download ONNX reranker
+      - name: Download BGE reranker GGUF
         run: |
-          MODEL_DIR="$HOME/.cache/fastrag/models/gte-reranker-modernbert-base"
-          if [ ! -f "$MODEL_DIR/model.onnx" ] || [ ! -f "$MODEL_DIR/tokenizer.json" ]; then
+          MODEL_DIR="$HOME/.cache/fastrag/models"
+          MODEL_FILE="bge-reranker-v2-m3-q8_0.gguf"
+          if [ ! -f "$MODEL_DIR/$MODEL_FILE" ]; then
             mkdir -p "$MODEL_DIR"
-            curl -fsSL "https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base/resolve/main/onnx/model.onnx" -o "$MODEL_DIR/model.onnx"
-            curl -fsSL "https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base/resolve/main/tokenizer.json" -o "$MODEL_DIR/tokenizer.json"
+            curl -fsSL "https://huggingface.co/klnstpr/bge-reranker-v2-m3-Q8_0-GGUF/resolve/main/$MODEL_FILE" -o "$MODEL_DIR/$MODEL_FILE"
           fi
 
       - name: Build contextualized corpus
@@ -120,7 +114,7 @@ jobs:
             echo "No baseline committed yet — running without regression gate."
           fi
           cargo run --release -p fastrag-cli --bin fastrag \
-            --features eval,retrieval,rerank,hybrid,contextual,contextual-llama -- \
+            --features eval,retrieval,rerank,rerank-llama,hybrid,contextual,contextual-llama -- \
             eval \
             --gold-set tests/gold/questions.json \
             --corpus "$RUNNER_TEMP/corpus-ctx" \

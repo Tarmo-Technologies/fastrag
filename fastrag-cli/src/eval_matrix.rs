@@ -41,16 +41,18 @@ pub fn run_config_matrix(
     let embedder = embed_loader::load_for_read(&ctx_corpus, &opts)
         .map_err(|e| EvalError::Runner(format!("loading embedder: {e}")))?;
 
-    // Load reranker — requires `rerank` feature.
-    let reranker = rerank_loader::load_reranker(RerankerKindArg::Onnx)
+    // Load reranker via llama-cpp (external process, ~1G RSS) instead of ONNX
+    // (in-process, 6G+ RSS due to ORT arena — OOMs on 7G CI runners).
+    let reranker = rerank_loader::load_reranker(RerankerKindArg::LlamaCpp)
         .map_err(|e| EvalError::Runner(format!("loading reranker: {e}")))?;
 
-    let driver = RealCorpusDriver {
-        ctx_corpus,
-        raw_corpus,
-        embedder: embedder.as_ref(),
-        reranker: reranker.as_ref(),
-    };
+    let driver = RealCorpusDriver::load(
+        &ctx_corpus,
+        &raw_corpus,
+        embedder.as_ref(),
+        reranker.as_ref(),
+    )
+    .map_err(|e| EvalError::Runner(format!("loading corpus driver: {e}")))?;
 
     let matrix_report = run_matrix(&driver, &gs, top_k)?;
 

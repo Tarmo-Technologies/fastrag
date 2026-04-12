@@ -51,6 +51,8 @@ pub struct LlamaServerHandle {
     /// The config used to spawn this handle, retained so [`LlamaServerHandle::restart`]
     /// can re-invoke [`LlamaServerHandle::spawn`] after a subprocess crash.
     cfg: LlamaServerConfig,
+    /// Path to the stderr log file for post-mortem diagnostics.
+    stderr_log: PathBuf,
 }
 
 impl LlamaServerHandle {
@@ -59,12 +61,20 @@ impl LlamaServerHandle {
             check_version(&cfg.binary_path, &cfg.extra_args)?;
         }
 
+        // Redirect stderr to a temp file so we can diagnose crashes without
+        // risking a pipe-buffer deadlock (the parent never drains piped stderr
+        // after the health-check loop).
+        let stderr_file = std::fs::File::create(
+            std::env::temp_dir().join(format!("llama-server-{}.log", cfg.port)),
+        )
+        .map_err(|e| EmbedError::LlamaServerSpawn(format!("create stderr log: {e}")))?;
+
         let mut cmd = Command::new(&cfg.binary_path);
         cmd.arg("--port")
             .arg(cfg.port.to_string())
             .args(&cfg.extra_args)
             .stdout(Stdio::null())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::from(stderr_file));
 
         let mut child = cmd
             .spawn()
@@ -124,12 +134,14 @@ impl LlamaServerHandle {
             thread::sleep(Duration::from_millis(100));
         }
 
+        let stderr_log = std::env::temp_dir().join(format!("llama-server-{}.log", cfg.port));
         Ok(Self {
             child,
             base_url,
             http,
             port: cfg.port,
             cfg,
+            stderr_log,
         })
     }
 
@@ -147,6 +159,11 @@ impl LlamaServerHandle {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Path to the stderr log file. Read after a crash for diagnostics.
+    pub fn stderr_log(&self) -> &Path {
+        &self.stderr_log
     }
 
     /// Non-blocking aliveness probe.
@@ -288,12 +305,14 @@ mod tests {
             .build()
             .expect("reqwest client");
         let port = cfg.port;
+        let stderr_log = std::env::temp_dir().join(format!("llama-server-{}.log", port));
         LlamaServerHandle {
             child,
             base_url,
             http,
             port,
             cfg,
+            stderr_log,
         }
     }
 

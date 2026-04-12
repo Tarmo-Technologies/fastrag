@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::RerankError;
 use fastrag_embed::EmbedError;
-use fastrag_embed::http::{build_client, ensure_success, send_with_retry};
+use fastrag_embed::http::{build_client_with_timeout, ensure_success, send_with_retry};
 
 /// A single result from the `/v1/rerank` endpoint.
 #[derive(Debug, Clone)]
@@ -42,7 +42,10 @@ impl LlamaCppRerankClient {
         Ok(Self {
             base_url: base_url.into(),
             model_name: model_name.into(),
-            http: build_client().map_err(embed_to_rerank)?,
+            // CPU-bound reranking of ~30 document pairs typically takes 2-10 s;
+            // allow 60 s as a generous ceiling.
+            http: build_client_with_timeout(std::time::Duration::from_secs(60))
+                .map_err(embed_to_rerank)?,
         })
     }
 
@@ -64,12 +67,43 @@ impl LlamaCppRerankClient {
             "top_n": top_n,
         });
 
-        let resp = send_with_retry(|| self.http.post(&url).json(&body)).map_err(embed_to_rerank)?;
-        let resp = ensure_success(resp).map_err(embed_to_rerank)?;
+        let result = send_with_retry(|| self.http.post(&url).json(&body));
 
-        let parsed: RerankResp = resp
-            .json()
-            .map_err(|e| RerankError::Http(format!("parse response: {e}")))?;
+        let parsed: RerankResp = match result {
+            Ok(resp) => {
+                let resp = ensure_success(resp).map_err(embed_to_rerank)?;
+                resp.json()
+                    .map_err(|e| RerankError::Http(format!("parse response: {e}")))?
+            }
+            Err(_) => {
+                // reqwest's internal tokio runtime is stuck. Fall back to
+                // curl as a completely independent process — guaranteed to
+                // bypass any client-side state corruption.
+                eprintln!("[http] reqwest exhausted; falling back to curl");
+                let body_str = body.to_string();
+                let output = std::process::Command::new("curl")
+                    .args([
+                        "-s",
+                        "--max-time",
+                        "60",
+                        "-X",
+                        "POST",
+                        &url,
+                        "-H",
+                        "Content-Type: application/json",
+                        "-d",
+                        &body_str,
+                    ])
+                    .output()
+                    .map_err(|e| RerankError::Http(format!("curl exec: {e}")))?;
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(RerankError::Http(format!("curl failed: {stderr}")));
+                }
+                serde_json::from_slice(&output.stdout)
+                    .map_err(|e| RerankError::Http(format!("curl parse: {e}")))?
+            }
+        };
 
         Ok(parsed
             .results

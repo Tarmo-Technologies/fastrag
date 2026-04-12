@@ -13,10 +13,15 @@ use fastrag_eval::matrix::{ConfigVariant, CorpusDriver, run_matrix};
 struct StubDriver;
 
 impl CorpusDriver for StubDriver {
+    fn embed_queries(&self, questions: &[&str]) -> Result<Vec<Vec<f32>>, EvalError> {
+        Ok(questions.iter().map(|_| vec![0.0_f32; 4]).collect())
+    }
+
     fn query(
         &self,
         variant: ConfigVariant,
         _question: &str,
+        _query_vector: &[f32],
         _top_k: usize,
         breakdown: &mut LatencyBreakdown,
     ) -> Result<Vec<String>, EvalError> {

@@ -67,9 +67,43 @@ impl LlamaCppClient {
         let url = format!("{}/v1/embeddings", self.base_url);
         let body = json!({ "model": self.model_name, "input": texts });
 
-        let resp = send_with_retry(|| self.http.post(&url).json(&body))?;
-        let resp = ensure_success(resp)?;
-        let parsed: Resp = resp.json().map_err(|e| EmbedError::Http(e.to_string()))?;
+        let result = send_with_retry(|| self.http.post(&url).json(&body));
+
+        let parsed: Resp = match result {
+            Ok(resp) => {
+                let resp = ensure_success(resp)?;
+                resp.json()
+                    .map_err(|e| EmbedError::Http(format!("parse response: {e}")))?
+            }
+            Err(_) => {
+                // reqwest's internal tokio runtime is stuck. Fall back to
+                // curl as a completely independent process — guaranteed to
+                // bypass any client-side state corruption.
+                eprintln!("[http] reqwest exhausted; falling back to curl for embeddings");
+                let body_str = body.to_string();
+                let output = std::process::Command::new("curl")
+                    .args([
+                        "-s",
+                        "--max-time",
+                        "120",
+                        "-X",
+                        "POST",
+                        &url,
+                        "-H",
+                        "Content-Type: application/json",
+                        "-d",
+                        &body_str,
+                    ])
+                    .output()
+                    .map_err(|e| EmbedError::Http(format!("curl exec: {e}")))?;
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(EmbedError::Http(format!("curl failed: {stderr}")));
+                }
+                serde_json::from_slice(&output.stdout)
+                    .map_err(|e| EmbedError::Http(format!("curl parse: {e}")))?
+            }
+        };
 
         if parsed.data.len() != texts.len() {
             return Err(EmbedError::UnexpectedDim {

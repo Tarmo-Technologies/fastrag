@@ -80,6 +80,7 @@ fn load_llama_cpp() -> Result<Box<dyn Reranker>, RerankLoaderError> {
                 "--embedding".to_string(),
                 "--pooling".to_string(),
                 "rank".to_string(),
+                "--rerank".to_string(),
             ],
             skip_version_check: false,
         };

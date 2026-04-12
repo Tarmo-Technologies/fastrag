@@ -125,10 +125,18 @@ impl MatrixReport {
 
 /// Abstraction over the real retrieval stack, mockable in tests.
 pub trait CorpusDriver {
+    /// Embed all query texts in a single batch. Returns one vector per input.
+    ///
+    /// Called once before the variant loop so embeddings are computed once and
+    /// reused across all four variants — query embeddings are corpus-independent.
+    fn embed_queries(&self, questions: &[&str]) -> Result<Vec<Vec<f32>>, EvalError>;
+
+    /// Run retrieval + optional reranking using a pre-computed query vector.
     fn query(
         &self,
         variant: ConfigVariant,
         question: &str,
+        query_vector: &[f32],
         top_k: usize,
         breakdown: &mut LatencyBreakdown,
     ) -> Result<Vec<String>, EvalError>;
@@ -170,6 +178,31 @@ pub fn run_matrix<D: CorpusDriver>(
     gold_set: &GoldSet,
     top_k: usize,
 ) -> Result<MatrixReport, EvalError> {
+    // ── Batch-embed all queries once ─────────────────────────────────────
+    // Query embeddings are corpus-independent, so one batch covers all four
+    // variants. This reduces embed HTTP calls from 4×N to 1 and eliminates
+    // the idle-connection churn that plagued the per-query approach.
+    let questions: Vec<&str> = gold_set
+        .entries
+        .iter()
+        .map(|e| e.question.as_str())
+        .collect();
+    let n = questions.len();
+    eprintln!("[eval] embedding {n} queries in one batch…");
+    let t_batch = std::time::Instant::now();
+    let vectors = driver.embed_queries(&questions)?;
+    let batch_embed_us = t_batch.elapsed().as_micros() as u64;
+    let per_query_embed_us = if n > 0 { batch_embed_us / n as u64 } else { 0 };
+    eprintln!("[eval] batch embed done in {batch_embed_us} µs ({per_query_embed_us} µs/query)");
+
+    if vectors.len() != n {
+        return Err(EvalError::Runner(format!(
+            "embed_queries returned {} vectors for {} questions",
+            vectors.len(),
+            n
+        )));
+    }
+
     let mut variant_reports: Vec<VariantReport> = Vec::with_capacity(4);
 
     for variant in ConfigVariant::all() {
@@ -183,10 +216,20 @@ pub fn run_matrix<D: CorpusDriver>(
 
         let mut per_question: Vec<QuestionResult> = Vec::with_capacity(gold_set.entries.len());
 
-        for entry in &gold_set.entries {
-            let mut bd = LatencyBreakdown::default();
+        for (qi, (entry, vector)) in gold_set.entries.iter().zip(&vectors).enumerate() {
+            eprintln!(
+                "[eval] {variant:?} query {}/{}: {}",
+                qi + 1,
+                gold_set.entries.len(),
+                &entry.question[..entry.question.len().min(60)]
+            );
+            // Amortize the batch embed time across individual queries.
+            let mut bd = LatencyBreakdown {
+                embed_us: per_query_embed_us,
+                ..Default::default()
+            };
             let chunks = driver
-                .query(variant, &entry.question, top_k, &mut bd)
+                .query(variant, &entry.question, vector, top_k, &mut bd)
                 .map_err(|e| EvalError::MatrixVariant {
                     variant,
                     source: Box::new(e),
