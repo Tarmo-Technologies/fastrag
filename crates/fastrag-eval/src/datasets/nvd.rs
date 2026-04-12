@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use fastrag_nvd::schema::{NvdDescription, NvdFeed};
+
 use crate::{EvalDataset, EvalDocument, EvalError, EvalQuery, EvalResult, Qrel};
 
 use super::common::{cache_root, download_to_path, file_name_from_url, read_gz_json, sha256_file};
@@ -193,30 +195,6 @@ fn english_descriptions(rows: &[NvdDescription]) -> Vec<String> {
         .map(|description| description.value.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect()
-}
-
-#[derive(Debug, Deserialize)]
-struct NvdFeed {
-    #[serde(default)]
-    vulnerabilities: Vec<NvdVulnerability>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NvdVulnerability {
-    cve: Option<NvdCve>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NvdCve {
-    id: Option<String>,
-    #[serde(default)]
-    descriptions: Vec<NvdDescription>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NvdDescription {
-    lang: String,
-    value: String,
 }
 
 #[derive(Debug, Deserialize)]

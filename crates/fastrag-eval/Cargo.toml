@@ -11,6 +11,7 @@ chrono = { workspace = true }
 dirs.workspace = true
 fastrag = { workspace = true, features = ["retrieval", "rerank", "hybrid"] }
 fastrag-core.workspace = true
+fastrag-nvd.workspace = true
 fastrag-embed.workspace = true
 fastrag-index.workspace = true
 fastrag-rerank.workspace = true
