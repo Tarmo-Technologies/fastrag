@@ -129,6 +129,11 @@ pub struct CorpusIndexStats {
     /// non-strict mode). `0` on runs without `--contextualize`.
     #[serde(default)]
     pub chunks_contextualize_fallback: usize,
+    /// Aggregate hygiene filter statistics for this run. Zero when
+    /// `--security-profile` was not used.
+    #[cfg(feature = "hygiene")]
+    #[serde(default)]
+    pub hygiene: crate::hygiene::HygieneStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -182,6 +187,8 @@ pub fn index_path(
         &std::collections::BTreeMap::new(),
         #[cfg(feature = "contextual")]
         None,
+        #[cfg(feature = "hygiene")]
+        None,
     )
 }
 
@@ -200,6 +207,7 @@ pub fn index_path_with_metadata(
     embedder: &dyn DynEmbedderTrait,
     base_metadata: &std::collections::BTreeMap<String, String>,
     #[cfg(feature = "contextual")] mut contextualize: Option<ContextualizeOptions<'_>>,
+    #[cfg(feature = "hygiene")] hygiene: Option<&crate::hygiene::HygieneChain>,
 ) -> Result<CorpusIndexStats, CorpusError> {
     use crate::corpus::incremental::{plan_index, walk_for_plan};
 
@@ -295,6 +303,9 @@ pub fn index_path_with_metadata(
     #[cfg(feature = "contextual")]
     let mut contextualize_totals = ContextualizeStats::default();
 
+    #[cfg(feature = "hygiene")]
+    let mut hygiene_totals = crate::hygiene::HygieneStats::default();
+
     for wf in &to_embed {
         let docs = load_documents(&wf.abs_path)?;
 
@@ -333,6 +344,26 @@ pub fn index_path_with_metadata(
 
             #[allow(unused_mut)]
             let mut chunks = chunk_document(doc, chunking);
+
+            // Hygiene filter stage: feature-gated, runs after chunking and
+            // before contextualization. Reject filters may skip the entire doc.
+            #[cfg(feature = "hygiene")]
+            if let Some(h) = hygiene {
+                match h.apply(chunks, &mut doc_metadata) {
+                    None => {
+                        // Doc rejected by hygiene — increment stats and skip.
+                        hygiene_totals.docs_rejected += 1;
+                        continue;
+                    }
+                    Some((filtered_chunks, h_stats)) => {
+                        chunks = filtered_chunks;
+                        hygiene_totals.docs_rejected += h_stats.docs_rejected;
+                        hygiene_totals.chunks_stripped += h_stats.chunks_stripped;
+                        hygiene_totals.chunks_lang_dropped += h_stats.chunks_lang_dropped;
+                        hygiene_totals.chunks_kev_tagged += h_stats.chunks_kev_tagged;
+                    }
+                }
+            }
 
             // Contextualization stage: feature-gated, runs after chunking and
             // before embedding. Mutates each `Chunk` in place so the later
@@ -485,6 +516,8 @@ pub fn index_path_with_metadata(
         chunks_contextualize_fallback: contextualize_totals.fallback,
         #[cfg(not(feature = "contextual"))]
         chunks_contextualize_fallback: 0,
+        #[cfg(feature = "hygiene")]
+        hygiene: hygiene_totals,
     })
 }
 
@@ -1173,6 +1206,8 @@ mod tests {
             &base,
             #[cfg(feature = "contextual")]
             None,
+            #[cfg(feature = "hygiene")]
+            None,
         )
         .unwrap();
 
@@ -1249,6 +1284,8 @@ mod tests {
             &MockEmbedder,
             &std::collections::BTreeMap::new(),
             #[cfg(feature = "contextual")]
+            None,
+            #[cfg(feature = "hygiene")]
             None,
         )
         .unwrap_err();

@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 
 use fastrag_core::Chunk;
+use serde::{Deserialize, Serialize};
 
 pub mod boilerplate;
 pub mod kev;
@@ -22,7 +23,7 @@ pub use language::{LanguageFilter, LanguagePolicy};
 pub use reject::{DocFilter, MetadataRejectFilter};
 
 /// Per-run hygiene statistics surfaced to the CLI summary line.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HygieneStats {
     pub docs_rejected: usize,
     pub chunks_stripped: usize,
@@ -129,6 +130,23 @@ impl Default for HygieneChain {
     }
 }
 
+/// Build the default `SecurityProfile` hygiene chain.
+///
+/// Composition: MetadataRejectFilter → BoilerplateStripper → LanguageFilter(en, Drop).
+/// KEV tagger is opt-in (added by the CLI when `--security-kev-catalog` is supplied).
+///
+/// Reject statuses default to `{Rejected, Disputed}`; override via `reject_statuses`.
+pub fn security_default_chain(reject_statuses: Option<Vec<String>>) -> HygieneChain {
+    let mut reject = MetadataRejectFilter::default();
+    if let Some(statuses) = reject_statuses {
+        reject.reject_statuses = statuses.into_iter().collect();
+    }
+    HygieneChain::new()
+        .with_doc_filter(Box::new(reject))
+        .with_chunk_filter(Box::new(BoilerplateStripper))
+        .with_chunk_filter(Box::new(LanguageFilter::default()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +200,31 @@ mod tests {
         assert!(result.is_some());
         let (out, _stats) = result.unwrap();
         assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn security_default_chain_rejects_and_strips() {
+        use super::security_default_chain;
+
+        let chain = security_default_chain(None);
+
+        // Rejected doc → None
+        let mut meta = BTreeMap::new();
+        meta.insert("vuln_status".to_string(), "Rejected".to_string());
+        let chunks = vec![make_chunk("** REJECT ** some text about a vulnerability")];
+        assert!(chain.apply(chunks, &mut meta).is_none());
+
+        // Analyzed doc with boilerplate prefix → marker stripped, English prose survives.
+        // Use a long enough English sentence so whatlang can reliably detect the language.
+        let mut meta2 = BTreeMap::new();
+        meta2.insert("vuln_status".to_string(), "Analyzed".to_string());
+        let chunks2 = vec![make_chunk(
+            "** DISPUTED ** A heap overflow in libfoo allows an attacker to execute arbitrary code remotely.",
+        )];
+        let result = chain.apply(chunks2, &mut meta2);
+        assert!(result.is_some());
+        let (out, _) = result.unwrap();
+        assert!(!out[0].text.contains("DISPUTED"));
+        assert!(out[0].text.contains("heap overflow in libfoo"));
     }
 }
