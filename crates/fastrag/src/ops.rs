@@ -348,6 +348,7 @@ fn extensions_for_format(format: &FileFormat) -> Vec<String> {
         FileFormat::Epub => vec!["epub".into()],
         FileFormat::Rtf => vec!["rtf".into()],
         FileFormat::Email => vec!["eml".into()],
+        FileFormat::NvdFeed => vec!["json".into()],
         FileFormat::Unknown => vec![],
     }
 }
