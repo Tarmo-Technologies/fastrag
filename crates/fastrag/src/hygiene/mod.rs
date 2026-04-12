@@ -17,6 +17,7 @@ pub mod language;
 pub mod reject;
 
 pub use boilerplate::BoilerplateStripper;
+pub use kev::KevTemporalTagger;
 pub use language::{LanguageFilter, LanguagePolicy};
 pub use reject::{DocFilter, MetadataRejectFilter};
 
