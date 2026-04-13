@@ -58,3 +58,24 @@ Never refresh to make a red CI go green — that defeats the gate.
 ## Weekly workflow
 
 Until `current.json` is committed, the weekly workflow runs `eval --config-matrix` without `--baseline` and uploads the report as an artifact. Once the baseline is committed, the workflow passes `--baseline docs/eval-baselines/current.json` and fails on regression.
+
+## PR eval gate
+
+The `eval-gate` job in `ci.yml` runs on every pull request. It restores a
+pre-built corpus from `actions/cache` (populated by the weekly workflow) and
+runs a query-only matrix eval against `current.json`. Only the reranker GGUF
+is needed for query-time scoring — no embedding models are downloaded.
+
+On cache miss the gate is skipped with a warning annotation. The next weekly
+run rebuilds and caches the corpus.
+
+### Waiver
+
+Add `Eval-Regression-Justified: <reason>` as a git commit trailer to skip
+the regression gate for a specific commit.
+
+## NVD query coverage
+
+`load_nvd()` uses a bundled security query set at
+`crates/fastrag-eval/src/datasets/security_queries.json`. NVD baselines
+report recall@10, MRR@10, and nDCG@10 alongside index footprint metrics.
