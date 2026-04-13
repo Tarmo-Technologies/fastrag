@@ -420,12 +420,30 @@ async fn batch_query_handler(
             .into_response());
     }
 
-    // Resolve corpus for this batch from the first query's corpus field.
-    let corpus_name = req
-        .queries
-        .first()
-        .and_then(|q| q.corpus.as_deref())
-        .unwrap_or("default");
+    // Validate all queries target the same corpus (per-corpus batch routing is out of scope).
+    let corpus_name: &str = {
+        let mut specified: Option<&str> = None;
+        for (i, item) in req.queries.iter().enumerate() {
+            if let Some(c) = item.corpus.as_deref() {
+                match specified {
+                    None => specified = Some(c),
+                    Some(prev) if prev != c => {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            format!(
+                                "all queries in a batch must target the same corpus; \
+                                 query 0 targets {:?} but query {} targets {:?}",
+                                prev, i, c
+                            ),
+                        )
+                            .into_response());
+                    }
+                    Some(_) => {} // same corpus, ok
+                }
+            }
+        }
+        specified.unwrap_or("default")
+    };
     let corpus_dir = match state.registry.corpus_path(corpus_name) {
         Some(p) => p,
         None => {

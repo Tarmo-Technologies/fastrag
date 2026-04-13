@@ -57,6 +57,8 @@ async fn named_corpus_query() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert!(json.is_array(), "response should be a hits array");
 
     // Query unknown corpus -> 404
     let resp = client
@@ -108,6 +110,10 @@ async fn get_corpora_lists_registry() {
     assert_eq!(corpora.len(), 1);
     assert_eq!(corpora[0]["name"].as_str().unwrap(), "nvd");
     assert_eq!(corpora[0]["status"].as_str().unwrap(), "unloaded");
+    assert!(
+        !corpora[0]["path"].as_str().unwrap_or("").is_empty(),
+        "path should be non-empty"
+    );
 }
 
 #[tokio::test]
@@ -144,4 +150,6 @@ async fn default_corpus_used_when_no_corpus_param() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert!(json.is_array(), "response should be a hits array");
 }
