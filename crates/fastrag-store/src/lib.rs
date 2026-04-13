@@ -441,6 +441,11 @@ impl Store {
     pub fn manifest(&self) -> &CorpusManifest {
         self.hnsw.manifest()
     }
+
+    /// Compute per-field statistics from Tantivy fast-field columns.
+    pub fn field_stats(&self) -> Vec<crate::tantivy::FieldStat> {
+        self.tantivy.field_stats()
+    }
 }
 
 // ── helper ────────────────────────────────────────────────────────────────────

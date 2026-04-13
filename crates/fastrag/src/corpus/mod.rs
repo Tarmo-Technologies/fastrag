@@ -147,6 +147,213 @@ pub struct CorpusInfo {
     pub source_files: Vec<PathBuf>,
 }
 
+/// Health metrics for a corpus, returned by `GET /stats`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CorpusStats {
+    pub corpus: String,
+    pub entries: EntryStats,
+    pub chunks: usize,
+    pub disk_bytes: u64,
+    pub embedding: EmbeddingInfo,
+    pub chunking: ChunkingInfo,
+    pub timestamps: TimestampInfo,
+    pub fields: Vec<FieldStatDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EntryStats {
+    pub live: usize,
+    pub tombstoned: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingInfo {
+    pub model_id: String,
+    pub dimensions: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChunkingInfo {
+    pub strategy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_characters: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlap: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimestampInfo {
+    pub created_unix: u64,
+    pub last_indexed_unix: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStatDto {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    pub cardinality: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+}
+
+/// Total disk usage of a corpus directory (recursive).
+fn disk_bytes(corpus_dir: &Path) -> u64 {
+    fn walk(dir: &Path, total: &mut u64) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Ok(meta) = std::fs::metadata(&path) {
+                        *total += meta.len();
+                    }
+                } else if path.is_dir() {
+                    walk(&path, total);
+                }
+            }
+        }
+    }
+    let mut total: u64 = 0;
+    walk(corpus_dir, &mut total);
+    total
+}
+
+#[cfg(feature = "index")]
+fn chunking_info(strategy: &ManifestChunkingStrategy) -> ChunkingInfo {
+    match strategy {
+        ManifestChunkingStrategy::Basic {
+            max_characters,
+            overlap,
+        } => ChunkingInfo {
+            strategy: "basic".to_string(),
+            max_characters: Some(*max_characters),
+            overlap: Some(*overlap),
+        },
+        ManifestChunkingStrategy::ByTitle {
+            max_characters,
+            overlap,
+        } => ChunkingInfo {
+            strategy: "by-title".to_string(),
+            max_characters: Some(*max_characters),
+            overlap: Some(*overlap),
+        },
+        ManifestChunkingStrategy::RecursiveCharacter {
+            max_characters,
+            overlap,
+            ..
+        } => ChunkingInfo {
+            strategy: "recursive".to_string(),
+            max_characters: Some(*max_characters),
+            overlap: Some(*overlap),
+        },
+        ManifestChunkingStrategy::Semantic {
+            max_characters, ..
+        } => ChunkingInfo {
+            strategy: "semantic".to_string(),
+            max_characters: Some(*max_characters),
+            overlap: None,
+        },
+    }
+}
+
+/// Compute corpus health statistics.
+///
+/// Supports Store-backed corpora (with `schema.json`) and HNSW-only legacy
+/// corpora. HNSW-only corpora return an empty `fields` array.
+#[cfg(feature = "store")]
+pub fn corpus_stats(corpus_dir: &Path, corpus_name: &str) -> Result<CorpusStats, CorpusError> {
+    use fastrag_store::tantivy::FieldStatType;
+
+    let has_store = corpus_dir.join("schema.json").exists();
+    let disk = disk_bytes(corpus_dir);
+
+    if has_store {
+        let store = fastrag_store::Store::open_no_embedder(corpus_dir)?;
+        let manifest = store.manifest().clone();
+
+        let fields: Vec<FieldStatDto> = store
+            .field_stats()
+            .into_iter()
+            .map(|fs| match &fs.field_type {
+                FieldStatType::Text => FieldStatDto {
+                    name: fs.name,
+                    field_type: "text".to_string(),
+                    cardinality: fs.cardinality,
+                    min: None,
+                    max: None,
+                },
+                FieldStatType::Numeric { min, max } => FieldStatDto {
+                    name: fs.name,
+                    field_type: "numeric".to_string(),
+                    cardinality: fs.cardinality,
+                    min: Some(*min),
+                    max: Some(*max),
+                },
+            })
+            .collect();
+
+        let last_indexed = manifest
+            .roots
+            .iter()
+            .map(|r| r.last_indexed_unix_seconds)
+            .max()
+            .unwrap_or(manifest.created_at_unix_seconds);
+
+        Ok(CorpusStats {
+            corpus: corpus_name.to_string(),
+            entries: EntryStats {
+                live: store.live_count(),
+                tombstoned: store.tombstone_count(),
+            },
+            chunks: manifest.chunk_count,
+            disk_bytes: disk,
+            embedding: EmbeddingInfo {
+                model_id: manifest.identity.model_id.clone(),
+                dimensions: manifest.identity.dim,
+            },
+            chunking: chunking_info(&manifest.chunking_strategy),
+            timestamps: TimestampInfo {
+                created_unix: manifest.created_at_unix_seconds,
+                last_indexed_unix: last_indexed,
+            },
+            fields,
+        })
+    } else {
+        // HNSW-only: read manifest directly.
+        let manifest_bytes = std::fs::read(corpus_dir.join("manifest.json"))?;
+        let manifest: crate::CorpusManifest = serde_json::from_slice(&manifest_bytes)?;
+
+        let last_indexed = manifest
+            .roots
+            .iter()
+            .map(|r| r.last_indexed_unix_seconds)
+            .max()
+            .unwrap_or(manifest.created_at_unix_seconds);
+
+        Ok(CorpusStats {
+            corpus: corpus_name.to_string(),
+            entries: EntryStats {
+                live: manifest.chunk_count,
+                tombstoned: 0,
+            },
+            chunks: manifest.chunk_count,
+            disk_bytes: disk,
+            embedding: EmbeddingInfo {
+                model_id: manifest.identity.model_id.clone(),
+                dimensions: manifest.identity.dim,
+            },
+            chunking: chunking_info(&manifest.chunking_strategy),
+            timestamps: TimestampInfo {
+                created_unix: manifest.created_at_unix_seconds,
+                last_indexed_unix: last_indexed,
+            },
+            fields: vec![],
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SearchHitDto {
