@@ -391,6 +391,7 @@ pub async fn serve_http_with_registry(
         // listing corpora requires the X-Fastrag-Tenant header. This prevents corpus
         // enumeration without tenant credentials.
         .route("/corpora", get(list_corpora))
+        .route("/stats", get(stats_handler))
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),
             tenant_middleware,
@@ -455,6 +456,12 @@ fn default_chunk_overlap() -> usize {
 
 #[derive(Debug, Deserialize)]
 struct DeleteQueryParams {
+    #[serde(default = "default_corpus")]
+    corpus: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StatsQueryParams {
     #[serde(default = "default_corpus")]
     corpus: String,
 }
@@ -701,6 +708,36 @@ async fn list_corpora(State(state): State<AppState>) -> impl IntoResponse {
         })
         .collect();
     Json(serde_json::json!({ "corpora": entries }))
+}
+
+async fn stats_handler(
+    State(state): State<AppState>,
+    Query(params): Query<StatsQueryParams>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let corpus_dir = state.registry.corpus_path(&params.corpus).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("corpus not found: {}", params.corpus) })),
+        )
+            .into_response()
+    })?;
+
+    let lock = get_or_create_lock(&state.ingest_locks, &params.corpus);
+    let _read_guard = lock.read().await;
+
+    let corpus_name = params.corpus.clone();
+    let stats = tokio::task::spawn_blocking(move || {
+        fastrag::corpus::corpus_stats(&corpus_dir, &corpus_name)
+    })
+    .await
+    .map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")).into_response()
+    })?
+    .map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("stats: {e}")).into_response()
+    })?;
+
+    Ok(Json(serde_json::to_value(stats).unwrap()))
 }
 
 fn run_query(
