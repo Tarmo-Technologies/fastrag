@@ -15,6 +15,8 @@ use crate::{CorpusManifest, ManifestChunkingStrategy};
 use fastrag_embed::DynEmbedderTrait;
 
 pub mod incremental;
+pub mod registry;
+pub use registry::CorpusRegistry;
 
 /// Options that opt a single `index_path_with_metadata` run into Contextual
 /// Retrieval. Carries the contextualizer, a mutable borrow on the cache, and
@@ -84,6 +86,8 @@ pub enum CorpusError {
     Index(#[from] crate::IndexError),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("corpus not found: {0}")]
+    NotFound(String),
     #[error("no parseable files found in {0}")]
     NoParseableFiles(PathBuf),
     #[error("embedder returned {got} vectors for {expected} chunks")]
