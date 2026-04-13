@@ -60,6 +60,7 @@ fn edited_file_is_re_embedded_stale_chunks_gone() {
         5,
         &MockEmbedder,
         &mut LatencyBreakdown::default(),
+        0,
     )
     .unwrap();
     assert!(hits.iter().all(|h| !h.chunk_text.contains("original")));
@@ -84,6 +85,7 @@ fn deleted_file_drops_chunks() {
         5,
         &MockEmbedder,
         &mut LatencyBreakdown::default(),
+        0,
     )
     .unwrap();
     assert!(hits.iter().all(|h| !h.source_path.ends_with("b.txt")));
@@ -116,6 +118,7 @@ fn two_roots_isolated() {
         5,
         &MockEmbedder,
         &mut LatencyBreakdown::default(),
+        0,
     )
     .unwrap();
     assert_eq!(hits.len(), 1);

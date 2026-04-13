@@ -763,6 +763,7 @@ fn run_query(
                 reranker.as_ref(),
                 filter,
                 &mut fastrag::corpus::LatencyBreakdown::default(),
+                0,
             );
         }
     }
@@ -774,6 +775,7 @@ fn run_query(
         state.embedder.as_ref() as &dyn DynEmbedderTrait,
         filter,
         &mut fastrag::corpus::LatencyBreakdown::default(),
+        0,
     )
 }
 

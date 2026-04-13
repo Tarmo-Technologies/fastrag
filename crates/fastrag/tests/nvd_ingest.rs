@@ -71,6 +71,7 @@ fn nvd_feed_chunks_carry_cve_ids_in_metadata() {
         5,
         &MockEmbedder,
         &mut LatencyBreakdown::default(),
+        0,
     )
     .expect("query must succeed");
 
@@ -110,6 +111,7 @@ fn nvd_feed_log4shell_metadata_values() {
         5,
         &MockEmbedder,
         &mut LatencyBreakdown::default(),
+        0,
     )
     .expect("query must succeed");
 

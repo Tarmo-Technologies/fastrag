@@ -525,6 +525,7 @@ async fn main() {
                             reranker.as_ref(),
                             filter_expr.as_ref(),
                             &mut fastrag::corpus::LatencyBreakdown::default(),
+                            0,
                         )
                     }
                     #[cfg(not(feature = "rerank"))]
@@ -539,6 +540,7 @@ async fn main() {
                         embedder.as_ref() as &dyn DynEmbedderTrait,
                         filter_expr.as_ref(),
                         &mut fastrag::corpus::LatencyBreakdown::default(),
+                        0,
                     )
                 };
 

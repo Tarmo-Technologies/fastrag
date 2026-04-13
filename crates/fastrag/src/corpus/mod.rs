@@ -519,7 +519,7 @@ fn query_with_store(
         let scored = store.query_dense(vector, top_k)?;
         breakdown.hnsw_us = t.elapsed().as_micros() as u64;
         breakdown.finalize();
-        return scored_ids_to_dtos(store, &scored);
+        return scored_ids_to_dtos(store, &scored, None, 0);
     }
 
     let filter_expr = filter.unwrap();
@@ -555,14 +555,14 @@ fn query_with_store(
                 survivors.push((*id, *score));
                 if survivors.len() >= top_k {
                     breakdown.finalize();
-                    return scored_ids_to_dtos(store, &survivors);
+                    return scored_ids_to_dtos(store, &survivors, None, 0);
                 }
             }
         }
 
         if factor == 32 {
             breakdown.finalize();
-            return scored_ids_to_dtos(store, &survivors);
+            return scored_ids_to_dtos(store, &survivors, None, 0);
         }
     }
 
@@ -875,8 +875,9 @@ pub fn query_corpus(
     top_k: usize,
     embedder: &dyn DynEmbedderTrait,
     breakdown: &mut LatencyBreakdown,
+    snippet_len: usize,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
-    query_corpus_with_filter(corpus_dir, query, top_k, embedder, None, breakdown)
+    query_corpus_with_filter(corpus_dir, query, top_k, embedder, None, breakdown, snippet_len)
 }
 
 /// Two-stage filtered retrieval: HNSW returns candidates, an expression
@@ -904,6 +905,7 @@ pub fn query_corpus_with_filter(
     embedder: &dyn DynEmbedderTrait,
     filter: Option<&crate::filter::FilterExpr>,
     breakdown: &mut LatencyBreakdown,
+    snippet_len: usize,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
     use fastrag_embed::QueryText;
     use std::time::Instant;
@@ -942,7 +944,7 @@ pub fn query_corpus_with_filter(
         breakdown.hnsw_us = t.elapsed().as_micros() as u64;
         breakdown.finalize();
 
-        return scored_ids_to_dtos(&store, &scored);
+        return scored_ids_to_dtos(&store, &scored, Some(query), snippet_len);
     }
 
     // ── Filtered path: adaptive overfetch ────────────────────────────────
@@ -987,7 +989,7 @@ pub fn query_corpus_with_filter(
 
         if passing.len() >= top_k || factor == *overfetch_factors.last().unwrap() {
             breakdown.finalize();
-            return scored_ids_to_dtos(&store, &passing);
+            return scored_ids_to_dtos(&store, &passing, Some(query), snippet_len);
         }
         // Not enough survivors — retry with larger overfetch.
     }
@@ -1004,6 +1006,8 @@ pub fn query_corpus_with_filter(
 fn scored_ids_to_dtos(
     store: &fastrag_store::Store,
     scored: &[(u64, f32)],
+    snippet_query: Option<&str>,
+    snippet_len: usize,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
     if scored.is_empty() {
         return Ok(vec![]);
@@ -1015,6 +1019,23 @@ fn scored_ids_to_dtos(
         metadata_rows.into_iter().collect();
 
     let hits = store.fetch_hits(scored)?;
+
+    let snippet_map: std::collections::HashMap<u64, String> = match snippet_query {
+        Some(query_text) if snippet_len > 0 => {
+            let all_ids: Vec<u64> = hits
+                .iter()
+                .flat_map(|h| h.chunks.iter().map(|c| c.id))
+                .collect();
+            let snippets = store.generate_snippets(query_text, &all_ids, snippet_len);
+            all_ids
+                .into_iter()
+                .zip(snippets)
+                .filter_map(|(id, s)| s.map(|text| (id, text)))
+                .collect()
+        }
+        _ => std::collections::HashMap::new(),
+    };
+
     let mut dtos = Vec::with_capacity(scored.len());
     for hit in &hits {
         // All chunks under this external_id share the same metadata (keyed by
@@ -1024,7 +1045,20 @@ fn scored_ids_to_dtos(
             dtos.push(SearchHitDto {
                 score: chunk.score,
                 chunk_text: chunk.chunk_text.clone(),
-                snippet: None,
+                snippet: snippet_map.get(&chunk.id).cloned().or_else(|| {
+                    if snippet_len > 0 && snippet_query.is_some() {
+                        let text = &chunk.chunk_text;
+                        if text.len() <= snippet_len {
+                            Some(text.clone())
+                        } else {
+                            let truncated = &text[..snippet_len];
+                            let end = truncated.rfind(' ').unwrap_or(snippet_len);
+                            Some(format!("{}...", &text[..end]))
+                        }
+                    } else {
+                        None
+                    }
+                }),
                 source: hit.source.clone(),
                 source_path: PathBuf::from(&hit.external_id),
                 chunk_index: chunk.chunk_index,
@@ -1100,13 +1134,14 @@ pub fn query_corpus_reranked(
     reranker: &dyn fastrag_rerank::Reranker,
     filter: Option<&crate::filter::FilterExpr>,
     breakdown: &mut LatencyBreakdown,
+    snippet_len: usize,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
     use fastrag_rerank::RerankHit;
     use std::time::Instant;
 
     let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
     let first_stage =
-        query_corpus_with_filter(corpus_dir, query, fan_out, embedder, filter, breakdown)?;
+        query_corpus_with_filter(corpus_dir, query, fan_out, embedder, filter, breakdown, snippet_len)?;
 
     let rerank_input: Vec<RerankHit> = first_stage
         .iter()
@@ -1470,6 +1505,7 @@ mod tests {
             1,
             &MockEmbedder,
             &mut LatencyBreakdown::default(),
+            0,
         )
         .unwrap();
         assert_eq!(hits.len(), 1);
@@ -1521,6 +1557,7 @@ mod tests {
             5,
             &MockEmbedder,
             &mut LatencyBreakdown::default(),
+            0,
         )
         .unwrap();
         assert_eq!(hits.len(), 1);
