@@ -28,8 +28,6 @@ pub enum EvalError {
     Index(#[from] fastrag_index::IndexError),
     #[error("unsupported schema version: expected {expected}, got {got}")]
     UnsupportedSchemaVersion { expected: u32, got: u32 },
-    #[error("unsupported chunking strategy: {0}")]
-    UnsupportedChunkingStrategy(String),
     #[error("malformed dataset: {0}")]
     MalformedDataset(String),
     #[error("missing report parent directory for {path}")]

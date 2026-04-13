@@ -9,7 +9,7 @@ use crate::error::{EvalError, EvalResult};
 use crate::metrics::{hit_rate_at_k, mrr_at_k, ndcg_at_k, recall_at_k};
 use crate::report::{EvalReport, LatencyStats, MemoryStats};
 
-use fastrag_core::ChunkingStrategy;
+use fastrag_core::{ChunkingStrategy, Document, Element, ElementKind, FileFormat, Metadata};
 use fastrag_embed::{CANARY_TEXT, Canary, DynEmbedderTrait, PassageText, QueryText};
 use fastrag_index::{
     CorpusManifest, HnswIndex, ManifestChunkingStrategy, VectorEntry, VectorIndex,
@@ -282,58 +282,40 @@ fn chunk_document(
     document: &EvalDocument,
     chunking: &ChunkingStrategy,
 ) -> EvalResult<Vec<ChunkRecord>> {
-    match chunking {
-        ChunkingStrategy::Basic { max_characters, .. } => {
-            Ok(split_text(document, *max_characters, false))
+    let elements = if matches!(chunking, ChunkingStrategy::ByTitle { .. }) {
+        // ByTitle splits on Title/Heading boundaries, so model
+        // the eval document as [Title, Paragraph].
+        let mut elems = Vec::new();
+        if let Some(title) = &document.title
+            && !title.is_empty()
+        {
+            elems.push(Element::new(ElementKind::Title, title.as_str()));
         }
-        ChunkingStrategy::ByTitle { max_characters, .. } => {
-            Ok(split_text(document, *max_characters, true))
-        }
-        other => Err(EvalError::UnsupportedChunkingStrategy(chunking_name(other))),
-    }
-}
-
-fn split_text(
-    document: &EvalDocument,
-    max_characters: usize,
-    prefix_title: bool,
-) -> Vec<ChunkRecord> {
-    let mut chunks = Vec::new();
-    let base_text = if prefix_title {
-        match &document.title {
+        elems.push(Element::new(ElementKind::Paragraph, document.text.as_str()));
+        elems
+    } else {
+        // For all other strategies, prepend title to text in a single Paragraph.
+        let text = match &document.title {
             Some(title) if !title.is_empty() => format!("{}\n\n{}", title, document.text),
             _ => document.text.clone(),
-        }
-    } else {
-        document.text.clone()
+        };
+        vec![Element::new(ElementKind::Paragraph, text)]
     };
 
-    let chars: Vec<char> = base_text.chars().collect();
-    if chars.len() <= max_characters {
-        chunks.push(ChunkRecord {
-            doc_id: document.id.clone(),
-            title: document.title.clone(),
-            text: base_text,
-            chunk_index: 0,
-        });
-        return chunks;
-    }
+    let mut metadata = Metadata::new(FileFormat::Text);
+    metadata.title = document.title.clone();
+    let doc = Document { metadata, elements };
 
-    let mut start = 0usize;
-    let mut chunk_index = 0usize;
-    while start < chars.len() {
-        let end = (start + max_characters).min(chars.len());
-        let text: String = chars[start..end].iter().collect();
-        chunks.push(ChunkRecord {
+    let chunks = doc.chunk(chunking);
+    Ok(chunks
+        .into_iter()
+        .map(|c| ChunkRecord {
             doc_id: document.id.clone(),
             title: document.title.clone(),
-            text,
-            chunk_index,
-        });
-        chunk_index += 1;
-        start = end;
-    }
-    chunks
+            text: c.text,
+            chunk_index: c.index,
+        })
+        .collect())
 }
 
 fn unique_doc_ids(retrieved: &[String]) -> Vec<String> {
@@ -451,15 +433,6 @@ fn current_unix_seconds() -> u64 {
         .as_secs()
 }
 
-fn chunking_name(chunking: &ChunkingStrategy) -> String {
-    match chunking {
-        ChunkingStrategy::Basic { .. } => "basic".to_string(),
-        ChunkingStrategy::ByTitle { .. } => "by-title".to_string(),
-        ChunkingStrategy::RecursiveCharacter { .. } => "recursive".to_string(),
-        ChunkingStrategy::Semantic { .. } => "semantic".to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,23 +477,32 @@ mod tests {
     }
 
     #[test]
-    fn split_text_handles_multibyte_chars() {
+    fn chunk_document_handles_multibyte_chars() {
         // Pre-#25 the chunker sliced on byte indices and panicked on multibyte UTF-8
         // (e.g. NFCorpus contains the U+2009 thin-space). Splitting must always land on
-        // a char boundary.
+        // a char boundary. Now delegates to fastrag_core::Document::chunk which uses
+        // RecursiveCharacter to split large single-element text at separator boundaries.
         let document = EvalDocument {
             id: "doc1".to_string(),
             title: None,
             text: "a\u{2009}".repeat(600), // 600 multibyte units, well over 1000 bytes
         };
-        let chunks = split_text(&document, 1000, false);
-        assert!(chunks.len() >= 2);
+        let strategy = ChunkingStrategy::RecursiveCharacter {
+            max_characters: 1000,
+            overlap: 0,
+            separators: vec![" ".to_string(), String::new()],
+        };
+        let chunks = chunk_document(&document, &strategy).unwrap();
+        assert!(
+            chunks.len() >= 2,
+            "expected at least 2 chunks, got {}",
+            chunks.len()
+        );
         for chunk in &chunks {
+            assert_eq!(chunk.doc_id, "doc1");
             assert!(chunk.text.is_char_boundary(0));
             assert!(chunk.text.is_char_boundary(chunk.text.len()));
         }
-        let rejoined: String = chunks.iter().map(|c| c.text.as_str()).collect();
-        assert_eq!(rejoined, document.text);
     }
 
     #[test]
@@ -622,6 +604,29 @@ mod tests {
         assert_eq!(first_lo, 10);
         assert_eq!(first_hi, 400);
         assert_eq!(second_lo, 500);
+    }
+
+    #[test]
+    fn chunk_document_supports_recursive_character() {
+        let document = EvalDocument {
+            id: "doc1".to_string(),
+            title: Some("My Title".to_string()),
+            text: "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.".to_string(),
+        };
+        let strategy = ChunkingStrategy::RecursiveCharacter {
+            max_characters: 30,
+            overlap: 0,
+            separators: vec!["\n\n".to_string(), "\n".to_string(), " ".to_string()],
+        };
+        let chunks = chunk_document(&document, &strategy).unwrap();
+        assert!(
+            chunks.len() >= 2,
+            "expected at least 2 chunks, got {}",
+            chunks.len()
+        );
+        for chunk in &chunks {
+            assert_eq!(chunk.doc_id, "doc1");
+        }
     }
 
     #[test]
