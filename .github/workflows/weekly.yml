@@ -92,7 +92,7 @@ jobs:
           cargo run --release -p fastrag-cli --bin fastrag \
             --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
             index tests/gold/corpus \
-            --corpus "$RUNNER_TEMP/corpus-ctx" \
+            --corpus eval-corpus/ctx \
             --embedder qwen3-q8 \
             --contextualize
 
@@ -101,8 +101,14 @@ jobs:
           cargo run --release -p fastrag-cli --bin fastrag \
             --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
             index tests/gold/corpus \
-            --corpus "$RUNNER_TEMP/corpus-raw" \
+            --corpus eval-corpus/raw \
             --embedder qwen3-q8
+
+      - name: Save eval corpus cache
+        uses: actions/cache/save@v4
+        with:
+          path: eval-corpus
+          key: eval-corpus-${{ hashFiles('tests/gold/corpus/**', 'crates/fastrag-embed/**', 'crates/fastrag-index/**') }}
 
       - name: Run eval matrix
         id: run_eval
@@ -117,8 +123,8 @@ jobs:
             --features eval,retrieval,rerank,rerank-llama,hybrid,contextual,contextual-llama -- \
             eval \
             --gold-set tests/gold/questions.json \
-            --corpus "$RUNNER_TEMP/corpus-ctx" \
-            --corpus-no-contextual "$RUNNER_TEMP/corpus-raw" \
+            --corpus eval-corpus/ctx \
+            --corpus-no-contextual eval-corpus/raw \
             --config-matrix \
             --variants primary,no_rerank \
             $BASELINE_ARG \
