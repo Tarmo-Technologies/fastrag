@@ -153,3 +153,49 @@ async fn default_corpus_used_when_no_corpus_param() {
     let json: serde_json::Value = resp.json().await.unwrap();
     assert!(json.is_array(), "response should be a hits array");
 }
+
+#[tokio::test]
+async fn tenant_enforcement_rejects_missing_header() {
+    let dir = toy_corpus();
+    let e = Arc::new(MockEmbedder);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let registry = CorpusRegistry::new();
+    registry.register("default", dir.path().to_path_buf());
+
+    tokio::spawn(async move {
+        serve_http_with_registry(
+            registry,
+            listener,
+            e,
+            None,
+            false,
+            HttpRerankerConfig::default(),
+            100,
+            Some("engagement_id".to_string()), // tenant enforcement ON
+        )
+        .await
+        .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::new();
+
+    // No tenant header -> 401.
+    let resp = client
+        .get(format!("http://{}/query?q=SQL&top_k=1", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    // With tenant header -> 200.
+    let resp = client
+        .get(format!("http://{}/query?q=SQL&top_k=1", addr))
+        .header("x-fastrag-tenant", "engagement-abc")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}

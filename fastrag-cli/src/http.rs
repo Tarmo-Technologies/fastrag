@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::{DefaultBodyLimit, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Extension, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -24,7 +24,6 @@ struct AppState {
     metrics: PrometheusHandle,
     dense_only: bool,
     batch_max_queries: usize,
-    #[allow(dead_code)]
     tenant_field: Option<String>,
     #[cfg(feature = "rerank")]
     reranker: Option<std::sync::Arc<dyn fastrag_rerank::Reranker>>,
@@ -81,6 +80,42 @@ async fn auth_middleware(
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
+}
+
+/// Tenant identity injected by middleware into request extensions when
+/// `tenant_field` is configured on the server. The `field` names the metadata
+/// key used to scope searches; `value` comes from the `X-Fastrag-Tenant` header.
+#[derive(Clone)]
+pub struct TenantFilter {
+    pub field: String,
+    pub value: String,
+}
+
+async fn tenant_middleware(
+    State(state): State<AppState>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let Some(ref field) = state.tenant_field else {
+        return Ok(next.run(req).await);
+    };
+
+    let tenant_value = req
+        .headers()
+        .get("x-fastrag-tenant")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let Some(tenant) = tenant_value else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+
+    req.extensions_mut().insert(TenantFilter {
+        field: field.clone(),
+        value: tenant,
+    });
+
+    Ok(next.run(req).await)
 }
 
 #[derive(Debug, Deserialize)]
@@ -322,6 +357,10 @@ pub async fn serve_http_with_registry(
         .route("/metrics", get(metrics_handler))
         .route("/corpora", get(list_corpora))
         .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            tenant_middleware,
+        ))
+        .route_layer(middleware::from_fn_with_state(
             auth_state.clone(),
             auth_middleware,
         ));
@@ -404,6 +443,7 @@ fn run_query(
 
 async fn batch_query_handler(
     State(state): State<AppState>,
+    tenant_ext: Option<Extension<TenantFilter>>,
     Json(req): Json<BatchQueryRequest>,
 ) -> Result<Json<BatchQueryResponse>, Response> {
     use fastrag_embed::QueryText;
@@ -493,15 +533,30 @@ async fn batch_query_handler(
             }
         };
 
-    // Build per-query params.
+    // Build per-query params, merging tenant filter if present.
+    let tenant_filter: Option<TenantFilter> = tenant_ext.map(|Extension(tf)| tf);
     let params: Vec<fastrag::corpus::BatchQueryParams> = req
         .queries
         .iter()
         .zip(filter_exprs.into_iter())
-        .map(|(item, f)| fastrag::corpus::BatchQueryParams {
-            text: item.q.clone(),
-            top_k: item.top_k,
-            filter: f,
+        .map(|(item, f)| {
+            let filter = if let Some(ref tf) = tenant_filter {
+                let tenant_cond = fastrag::filter::FilterExpr::Eq {
+                    field: tf.field.clone(),
+                    value: fastrag_store::schema::TypedValue::String(tf.value.clone()),
+                };
+                Some(match f {
+                    Some(existing) => fastrag::filter::FilterExpr::And(vec![tenant_cond, existing]),
+                    None => tenant_cond,
+                })
+            } else {
+                f
+            };
+            fastrag::corpus::BatchQueryParams {
+                text: item.q.clone(),
+                top_k: item.top_k,
+                filter,
+            }
         })
         .collect();
 
@@ -545,6 +600,7 @@ async fn batch_query_handler(
 async fn query(
     State(state): State<AppState>,
     Query(params): Query<QueryParams>,
+    tenant_ext: Option<Extension<TenantFilter>>,
 ) -> Result<Json<Vec<SearchHitDto>>, Response> {
     let span = info_span!(
         "query",
@@ -556,7 +612,7 @@ async fn query(
     let _enter = span.enter();
     let start = Instant::now();
 
-    let filter_expr: Option<fastrag::filter::FilterExpr> = match params.filter.as_deref() {
+    let base_filter: Option<fastrag::filter::FilterExpr> = match params.filter.as_deref() {
         Some(s) => match fastrag::filter::parse(s) {
             Ok(f) => Some(f),
             Err(e) => {
@@ -564,6 +620,19 @@ async fn query(
             }
         },
         None => None,
+    };
+
+    let filter_expr: Option<fastrag::filter::FilterExpr> = if let Some(Extension(tf)) = tenant_ext {
+        let tenant_cond = fastrag::filter::FilterExpr::Eq {
+            field: tf.field.clone(),
+            value: fastrag_store::schema::TypedValue::String(tf.value.clone()),
+        };
+        Some(match base_filter {
+            Some(existing) => fastrag::filter::FilterExpr::And(vec![tenant_cond, existing]),
+            None => tenant_cond,
+        })
+    } else {
+        base_filter
     };
 
     let corpus_name = params.corpus.as_deref().unwrap_or("default");
