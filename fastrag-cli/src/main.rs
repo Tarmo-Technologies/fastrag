@@ -658,8 +658,23 @@ async fn main() {
             #[cfg(feature = "rerank")]
             rerank_over_fetch,
             batch_max_queries,
+            tenant_field,
         } => {
             let token = token.or_else(|| std::env::var("FASTRAG_TOKEN").ok());
+
+            // Build registry from repeatable --corpus name=path args.
+            let registry = fastrag::corpus::CorpusRegistry::new();
+            for arg in &corpus {
+                let (name, path) = fastrag::corpus::CorpusRegistry::parse_corpus_arg(arg);
+                registry.register(name, path);
+            }
+
+            // Use first corpus path for embedder auto-detection (reads the manifest).
+            let first_path = corpus
+                .first()
+                .map(|s| fastrag::corpus::CorpusRegistry::parse_corpus_arg(s).1)
+                .unwrap(); // required = true guarantees at least one
+
             let opts = embed_loader::EmbedderOptions {
                 kind: embedder,
                 model_path,
@@ -668,7 +683,7 @@ async fn main() {
                 ollama_model,
                 ollama_url,
             };
-            let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
+            let embedder = embed_loader::load_for_read(&first_path, &opts).unwrap_or_else(|e| {
                 eprintln!("Error loading embedder: {e}");
                 std::process::exit(1);
             });
@@ -688,14 +703,15 @@ async fn main() {
                 rerank_cfg.over_fetch = rerank_over_fetch;
             }
 
-            if let Err(e) = fastrag_cli::http::serve_http(
-                corpus,
+            if let Err(e) = fastrag_cli::http::serve_http_with_registry(
+                registry,
                 port,
                 embedder,
                 token,
                 dense_only,
                 rerank_cfg,
                 batch_max_queries,
+                tenant_field,
             )
             .await
             {

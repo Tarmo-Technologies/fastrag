@@ -19,11 +19,13 @@ use tracing::{info, info_span, warn};
 
 #[derive(Clone)]
 struct AppState {
-    corpus_dir: PathBuf,
+    registry: fastrag::corpus::CorpusRegistry,
     embedder: DynEmbedder,
     metrics: PrometheusHandle,
     dense_only: bool,
     batch_max_queries: usize,
+    #[allow(dead_code)]
+    tenant_field: Option<String>,
     #[cfg(feature = "rerank")]
     reranker: Option<std::sync::Arc<dyn fastrag_rerank::Reranker>>,
     #[cfg(feature = "rerank")]
@@ -99,6 +101,9 @@ struct QueryParams {
     /// Override the rerank over-fetch multiplier for this request.
     #[serde(default)]
     over_fetch: Option<usize>,
+    /// Named corpus to query. Defaults to `"default"`.
+    #[serde(default)]
+    corpus: Option<String>,
 }
 
 fn default_top_k() -> usize {
@@ -118,9 +123,8 @@ struct BatchQueryItem {
     /// Accepts either string syntax ("severity = HIGH") or JSON AST (FilterExpr).
     #[serde(default)]
     filter: Option<serde_json::Value>,
-    /// Reserved for federation (Phase B). Ignored for now.
+    /// Named corpus to query. Defaults to `"default"`.
     #[serde(default)]
-    #[allow(dead_code)]
     corpus: Option<String>,
 }
 
@@ -203,6 +207,57 @@ pub async fn serve_http_with_embedder(
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
 ) -> Result<(), HttpError> {
+    let registry = fastrag::corpus::CorpusRegistry::new();
+    registry.register("default", corpus_dir);
+    serve_http_with_registry_and_listener(
+        registry,
+        listener,
+        embedder,
+        token,
+        dense_only,
+        rerank_cfg,
+        batch_max_queries,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_http_with_registry(
+    registry: fastrag::corpus::CorpusRegistry,
+    port: u16,
+    embedder: DynEmbedder,
+    token: Option<String>,
+    dense_only: bool,
+    rerank_cfg: HttpRerankerConfig,
+    batch_max_queries: usize,
+    tenant_field: Option<String>,
+) -> Result<(), HttpError> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
+    serve_http_with_registry_and_listener(
+        registry,
+        listener,
+        embedder,
+        token,
+        dense_only,
+        rerank_cfg,
+        batch_max_queries,
+        tenant_field,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_http_with_registry_and_listener(
+    registry: fastrag::corpus::CorpusRegistry,
+    listener: tokio::net::TcpListener,
+    embedder: DynEmbedder,
+    token: Option<String>,
+    dense_only: bool,
+    rerank_cfg: HttpRerankerConfig,
+    batch_max_queries: usize,
+    tenant_field: Option<String>,
+) -> Result<(), HttpError> {
     // The `metrics` crate allows exactly one global recorder per process, but in
     // test binaries multiple serve_http_with_embedder calls share one process.
     // Install exactly once, then reuse the handle for every subsequent server.
@@ -225,10 +280,13 @@ pub async fn serve_http_with_embedder(
         "Number of entries in the loaded corpus index"
     );
 
-    if let Ok(info) =
-        fastrag::corpus::corpus_info(&corpus_dir, embedder.as_ref() as &dyn DynEmbedderTrait)
-    {
-        metrics::gauge!("fastrag_index_entries").set(info.entry_count as f64);
+    // Update index entry gauge for every registered corpus.
+    for (_name, path, _loaded) in registry.list() {
+        if let Ok(info) =
+            fastrag::corpus::corpus_info(&path, embedder.as_ref() as &dyn DynEmbedderTrait)
+        {
+            metrics::gauge!("fastrag_index_entries").set(info.entry_count as f64);
+        }
     }
 
     let auth_state = AuthState {
@@ -242,11 +300,12 @@ pub async fn serve_http_with_embedder(
     }
 
     let app_state = AppState {
-        corpus_dir,
+        registry,
         embedder,
         metrics,
         dense_only,
         batch_max_queries,
+        tenant_field,
         #[cfg(feature = "rerank")]
         reranker: rerank_cfg.reranker,
         #[cfg(feature = "rerank")]
@@ -261,6 +320,7 @@ pub async fn serve_http_with_embedder(
             axum::routing::post(batch_query_handler).layer(DefaultBodyLimit::max(10 * 1024 * 1024)), // 10 MB
         )
         .route("/metrics", get(metrics_handler))
+        .route("/corpora", get(list_corpora))
         .route_layer(middleware::from_fn_with_state(
             auth_state.clone(),
             auth_middleware,
@@ -285,11 +345,33 @@ async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     state.metrics.render()
 }
 
+async fn list_corpora(State(state): State<AppState>) -> impl IntoResponse {
+    let entries: Vec<serde_json::Value> = state
+        .registry
+        .list()
+        .into_iter()
+        .map(|(name, path, loaded)| {
+            serde_json::json!({
+                "name": name,
+                "path": path,
+                "status": if loaded { "loaded" } else { "unloaded" }
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "corpora": entries }))
+}
+
 fn run_query(
     state: &AppState,
     params: &QueryParams,
     filter: Option<&fastrag::filter::FilterExpr>,
+    corpus_name: &str,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
+    let corpus_dir = state
+        .registry
+        .corpus_path(corpus_name)
+        .ok_or_else(|| CorpusError::NotFound(corpus_name.to_string()))?;
+
     let _ = state.dense_only; // hybrid removed; dense-only is the only path
 
     #[cfg(feature = "rerank")]
@@ -298,7 +380,7 @@ fn run_query(
         if !skip && let Some(ref reranker) = state.reranker {
             let over_fetch = params.over_fetch.unwrap_or(state.rerank_over_fetch);
             return ops::query_corpus_reranked(
-                &state.corpus_dir,
+                &corpus_dir,
                 &params.q,
                 params.top_k,
                 over_fetch,
@@ -311,7 +393,7 @@ fn run_query(
     }
 
     ops::query_corpus_with_filter(
-        &state.corpus_dir,
+        &corpus_dir,
         &params.q,
         params.top_k,
         state.embedder.as_ref() as &dyn DynEmbedderTrait,
@@ -337,6 +419,19 @@ async fn batch_query_handler(
         )
             .into_response());
     }
+
+    // Resolve corpus for this batch from the first query's corpus field.
+    let corpus_name = req
+        .queries
+        .first()
+        .and_then(|q| q.corpus.as_deref())
+        .unwrap_or("default");
+    let corpus_dir = match state.registry.corpus_path(corpus_name) {
+        Some(p) => p,
+        None => {
+            return Err((StatusCode::NOT_FOUND, "corpus not found").into_response());
+        }
+    };
 
     // Parse all filters up front. Track per-query filter parse errors.
     let mut filter_errors: Vec<Option<String>> = vec![None; req.queries.len()];
@@ -394,14 +489,10 @@ async fn batch_query_handler(
 
     // Run batch retrieval.
     #[cfg(feature = "rerank")]
-    let raw_results = fastrag::corpus::batch_query(
-        &state.corpus_dir,
-        &embeddings,
-        &params,
-        state.reranker.as_deref(),
-    );
+    let raw_results =
+        fastrag::corpus::batch_query(&corpus_dir, &embeddings, &params, state.reranker.as_deref());
     #[cfg(not(feature = "rerank"))]
-    let raw_results = fastrag::corpus::batch_query(&state.corpus_dir, &embeddings, &params);
+    let raw_results = fastrag::corpus::batch_query(&corpus_dir, &embeddings, &params);
 
     // Merge filter parse errors with retrieval results.
     let results: Vec<BatchResultItem> = raw_results
@@ -457,7 +548,8 @@ async fn query(
         None => None,
     };
 
-    let result = run_query(&state, &params, filter_expr.as_ref());
+    let corpus_name = params.corpus.as_deref().unwrap_or("default");
+    let result = run_query(&state, &params, filter_expr.as_ref(), corpus_name);
 
     let elapsed = start.elapsed();
     metrics::counter!("fastrag_query_total").increment(1);
@@ -469,6 +561,10 @@ async fn query(
             span.record("hit_count", hits.len());
             info!("query served");
             Ok(Json(hits))
+        }
+        Err(CorpusError::NotFound(_)) => {
+            warn!(corpus = corpus_name, "corpus not found");
+            Err((StatusCode::NOT_FOUND, "corpus not found").into_response())
         }
         Err(err) => {
             warn!(error = %err, "query failed");

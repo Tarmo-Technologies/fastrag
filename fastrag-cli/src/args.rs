@@ -468,9 +468,10 @@ pub enum Command {
     /// Start HTTP retrieval server
     #[cfg(feature = "retrieval")]
     ServeHttp {
-        /// Corpus directory used for persistence
-        #[arg(long)]
-        corpus: PathBuf,
+        /// Corpus to serve. Format: `name=path` or just `path` (registered as "default").
+        /// May be specified multiple times for multi-corpus mode.
+        #[arg(long, required = true)]
+        corpus: Vec<String>,
 
         /// Port to bind
         #[arg(long, default_value_t = 8081)]
@@ -529,6 +530,12 @@ pub enum Command {
         /// Maximum number of queries allowed in a single /batch-query request.
         #[arg(long, default_value_t = 100)]
         batch_max_queries: usize,
+
+        /// Tenant enforcement field. When set, every request must supply
+        /// `X-Fastrag-Tenant: <value>`; the server injects `<field> = <value>`
+        /// as a mandatory filter on all queries.
+        #[arg(long)]
+        tenant_field: Option<String>,
     },
 
     /// Delete a record by external ID from a store-backed corpus
