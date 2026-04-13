@@ -32,6 +32,7 @@ blake3 = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 whatlang = { version = "0.16", optional = true }
+rayon = { workspace = true }
 thiserror.workspace = true
 
 [dev-dependencies]

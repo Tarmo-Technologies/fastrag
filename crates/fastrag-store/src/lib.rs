@@ -111,6 +111,89 @@ impl Store {
         })
     }
 
+    /// Open a corpus for querying with pre-computed vectors.
+    ///
+    /// Reads the manifest to construct a passthrough embedder that satisfies
+    /// `HnswIndex::load`'s identity and canary checks without calling any real
+    /// embedding model. Use this when the caller already holds pre-computed
+    /// vectors and does not need `embed_query`.
+    pub fn open_no_embedder(corpus_dir: &Path) -> StoreResult<Self> {
+        use fastrag_embed::{EmbedderIdentity, PassageText, PrefixScheme, QueryText};
+        use fastrag_index::CorpusManifest;
+
+        // Read the manifest to extract identity + canary so we can construct
+        // a NullEmbedder that passes HnswIndex::load's identity and canary checks.
+        let manifest_bytes = std::fs::read(corpus_dir.join("manifest.json"))?;
+        let manifest: CorpusManifest =
+            serde_json::from_slice(&manifest_bytes).map_err(crate::error::StoreError::Json)?;
+
+        let identity = manifest.identity.clone();
+        let canary_vector = manifest.canary.vector.clone();
+
+        // Leak the model_id string to satisfy the &'static str constraint on
+        // DynEmbedderTrait::model_id(). This allocation lives for the duration
+        // of the process but open_no_embedder is called infrequently.
+        let model_id_static: &'static str = Box::leak(identity.model_id.clone().into_boxed_str());
+
+        struct ManifestPassthroughEmbedder {
+            identity: EmbedderIdentity,
+            canary_vector: Vec<f32>,
+            model_id_static: &'static str,
+        }
+
+        impl fastrag_embed::DynEmbedderTrait for ManifestPassthroughEmbedder {
+            fn model_id(&self) -> &'static str {
+                self.model_id_static
+            }
+
+            fn dim(&self) -> usize {
+                self.identity.dim
+            }
+
+            fn prefix_scheme(&self) -> PrefixScheme {
+                PrefixScheme::NONE
+            }
+
+            fn prefix_scheme_hash(&self) -> u64 {
+                self.identity.prefix_scheme_hash
+            }
+
+            fn identity(&self) -> EmbedderIdentity {
+                self.identity.clone()
+            }
+
+            fn default_batch_size(&self) -> usize {
+                64
+            }
+
+            fn embed_query_dyn(
+                &self,
+                _texts: &[QueryText],
+            ) -> Result<Vec<Vec<f32>>, fastrag_embed::EmbedError> {
+                Err(fastrag_embed::EmbedError::Http(
+                    "ManifestPassthroughEmbedder: embed_query must not be called".into(),
+                ))
+            }
+
+            fn embed_passage_dyn(
+                &self,
+                texts: &[PassageText],
+            ) -> Result<Vec<Vec<f32>>, fastrag_embed::EmbedError> {
+                // Return the stored canary vector for every input. HnswIndex::load
+                // calls this exactly once with the canary text to verify drift.
+                Ok(vec![self.canary_vector.clone(); texts.len()])
+            }
+        }
+
+        let passthrough = ManifestPassthroughEmbedder {
+            identity,
+            canary_vector,
+            model_id_static,
+        };
+
+        Self::open(corpus_dir, &passthrough)
+    }
+
     pub fn schema(&self) -> &DynamicSchema {
         &self.schema
     }

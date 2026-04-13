@@ -176,6 +176,172 @@ impl From<VectorHit> for SearchHitDto {
     }
 }
 
+/// Per-query parameters for `batch_query`.
+pub struct BatchQueryParams {
+    pub text: String,
+    pub top_k: usize,
+    pub filter: Option<crate::filter::FilterExpr>,
+}
+
+/// Per-query result from `batch_query`.
+pub type BatchQueryResult = Result<Vec<SearchHitDto>, CorpusError>;
+
+/// Batch retrieval against a single corpus.
+///
+/// `embeddings` must be pre-computed by the caller (one vector per entry in
+/// `params`). Retrieval fans out in parallel via rayon.
+///
+/// Returns one `Result` per query in input order. An error on one query does
+/// not affect others.
+#[cfg(feature = "retrieval")]
+pub fn batch_query(
+    corpus_dir: &Path,
+    embeddings: &[Vec<f32>],
+    params: &[BatchQueryParams],
+    #[cfg(feature = "rerank")] reranker: Option<&dyn fastrag_rerank::Reranker>,
+) -> Vec<BatchQueryResult> {
+    use rayon::prelude::*;
+    assert_eq!(
+        embeddings.len(),
+        params.len(),
+        "embeddings and params must be same length"
+    );
+
+    embeddings
+        .par_iter()
+        .zip(params.par_iter())
+        .map(|(vec, p)| {
+            let filter = p.filter.as_ref();
+
+            #[cfg(feature = "rerank")]
+            if let Some(rr) = reranker {
+                let over_fetch = 10usize;
+                let fan_out = p.top_k.saturating_mul(over_fetch).max(p.top_k);
+                let candidates = query_with_precomputed_vector(
+                    corpus_dir,
+                    vec,
+                    fan_out,
+                    filter,
+                    &mut LatencyBreakdown::default(),
+                )?;
+                use fastrag_rerank::RerankHit;
+                let rerank_input: Vec<RerankHit> = candidates
+                    .iter()
+                    .enumerate()
+                    .map(|(i, dto)| RerankHit {
+                        id: i as u64,
+                        chunk_text: dto.chunk_text.clone(),
+                        score: dto.score,
+                    })
+                    .collect();
+                let mut reranked = rr
+                    .rerank(&p.text, rerank_input)
+                    .map_err(|e| CorpusError::Rerank(e.to_string()))?;
+                reranked.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+                reranked.truncate(p.top_k);
+                let hits = reranked
+                    .into_iter()
+                    .filter_map(|r| candidates.get(r.id as usize).cloned())
+                    .collect();
+                return Ok(hits);
+            }
+
+            query_with_precomputed_vector(
+                corpus_dir,
+                vec,
+                p.top_k,
+                filter,
+                &mut LatencyBreakdown::default(),
+            )
+        })
+        .collect()
+}
+
+/// Query a corpus using a pre-computed embedding vector (no embed call).
+///
+/// Legacy HNSW-only corpora (no `schema.json`) require an embedder for dim
+/// validation — returns an empty vec for those. Only Store-backed corpora are
+/// supported.
+#[cfg(feature = "retrieval")]
+fn query_with_precomputed_vector(
+    corpus_dir: &Path,
+    vector: &[f32],
+    top_k: usize,
+    filter: Option<&crate::filter::FilterExpr>,
+    breakdown: &mut LatencyBreakdown,
+) -> Result<Vec<SearchHitDto>, CorpusError> {
+    use std::time::Instant;
+
+    let has_store = corpus_dir.join("schema.json").exists();
+
+    if !has_store {
+        // Legacy HNSW-only corpora require an embedder for dim validation.
+        // batch_query only supports Store-backed corpora.
+        breakdown.finalize();
+        return Ok(vec![]);
+    }
+
+    let store = fastrag_store::Store::open_no_embedder(corpus_dir)?;
+
+    if filter.is_none() {
+        let t = Instant::now();
+        let scored = store.query_dense(vector, top_k)?;
+        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+        breakdown.finalize();
+        return scored_ids_to_dtos(&store, &scored);
+    }
+
+    let filter_expr = filter.unwrap();
+    let overfetch_factors: &[usize] = &[4, 16, 32];
+
+    for &factor in overfetch_factors {
+        let fetch_count = top_k.saturating_mul(factor).max(top_k);
+        let t = Instant::now();
+        let scored = store.query_dense(vector, fetch_count)?;
+        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+
+        if scored.is_empty() {
+            breakdown.finalize();
+            return Ok(vec![]);
+        }
+
+        let ids: Vec<u64> = scored.iter().map(|(id, _)| *id).collect();
+        let metadata_rows = store.fetch_metadata(&ids)?;
+
+        let meta_map: std::collections::HashMap<
+            u64,
+            &[(String, fastrag_store::schema::TypedValue)],
+        > = metadata_rows
+            .iter()
+            .map(|(id, fields)| (*id, fields.as_slice()))
+            .collect();
+
+        let mut survivors = Vec::new();
+        for (id, score) in &scored {
+            if let Some(fields) = meta_map.get(id) {
+                let passes = crate::filter::matches(filter_expr, fields);
+                if passes {
+                    if let Ok(dto) = scored_ids_to_dtos(&store, &[(*id, *score)]) {
+                        survivors.extend(dto);
+                    }
+                    if survivors.len() >= top_k {
+                        breakdown.finalize();
+                        return Ok(survivors);
+                    }
+                }
+            }
+        }
+
+        if factor == 32 {
+            breakdown.finalize();
+            return Ok(survivors);
+        }
+    }
+
+    breakdown.finalize();
+    Ok(vec![])
+}
+
 pub fn index_path(
     input: &Path,
     corpus_dir: &Path,
@@ -1178,6 +1344,55 @@ mod tests {
         };
         b.finalize();
         assert_eq!(b.total_us, 1500);
+    }
+}
+
+#[cfg(all(test, feature = "retrieval"))]
+mod batch_query_tests {
+    use super::*;
+    use fastrag_embed::test_utils::MockEmbedder;
+    use fastrag_embed::{DynEmbedderTrait, QueryText};
+
+    #[test]
+    fn batch_query_params_construction() {
+        let p = BatchQueryParams {
+            text: "find vulnerabilities".to_string(),
+            top_k: 5,
+            filter: None,
+        };
+        assert_eq!(p.text, "find vulnerabilities");
+        assert_eq!(p.top_k, 5);
+        assert!(p.filter.is_none());
+    }
+
+    #[test]
+    fn batch_embed_invariant_matches_individual_calls() {
+        let e = MockEmbedder;
+        let texts = vec![
+            QueryText::new("alpha beta gamma"),
+            QueryText::new("delta epsilon zeta"),
+        ];
+
+        // Batch call
+        let batch = e.embed_query_dyn(&texts).unwrap();
+        assert_eq!(batch.len(), 2);
+
+        // Individual calls
+        let a = e
+            .embed_query_dyn(&[QueryText::new("alpha beta gamma")])
+            .unwrap();
+        let b = e
+            .embed_query_dyn(&[QueryText::new("delta epsilon zeta")])
+            .unwrap();
+
+        assert_eq!(
+            batch[0], a[0],
+            "batch[0] must match individual embed for same text"
+        );
+        assert_eq!(
+            batch[1], b[0],
+            "batch[1] must match individual embed for same text"
+        );
     }
 }
 
