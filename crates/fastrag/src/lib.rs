@@ -2,6 +2,8 @@
 pub mod corpus;
 #[cfg(feature = "hygiene")]
 pub mod hygiene;
+#[cfg(feature = "store")]
+pub mod ingest;
 pub mod ops;
 pub mod registry;
 
