@@ -446,6 +446,16 @@ impl Store {
     pub fn field_stats(&self) -> Vec<crate::tantivy::FieldStat> {
         self.tantivy.field_stats()
     }
+
+    /// Generate highlighted snippets for the given internal IDs.
+    pub fn generate_snippets(
+        &self,
+        query_text: &str,
+        ids: &[u64],
+        max_chars: usize,
+    ) -> Vec<Option<String>> {
+        self.tantivy.generate_snippets(query_text, ids, max_chars)
+    }
 }
 
 // ── helper ────────────────────────────────────────────────────────────────────

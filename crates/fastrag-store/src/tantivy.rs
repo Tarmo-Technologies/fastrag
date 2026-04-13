@@ -443,6 +443,67 @@ impl TantivyStore {
 
         stats
     }
+
+    /// Generate highlighted snippets for the given internal IDs using Tantivy's
+    /// SnippetGenerator. Returns one `Option<String>` per ID in input order.
+    /// `None` if the document is not found or snippet generation fails.
+    pub fn generate_snippets(
+        &self,
+        query_text: &str,
+        ids: &[u64],
+        max_chars: usize,
+    ) -> Vec<Option<String>> {
+        use tantivy::query::QueryParser;
+        use tantivy::snippet::SnippetGenerator;
+
+        let searcher = self.reader.searcher();
+        let parser = QueryParser::for_index(searcher.index(), vec![self.core.chunk_text]);
+        let query = match parser.parse_query(query_text) {
+            Ok(q) => q,
+            Err(_) => return vec![None; ids.len()],
+        };
+
+        let mut generator =
+            match SnippetGenerator::create(&searcher, &*query, self.core.chunk_text) {
+                Ok(g) => g,
+                Err(_) => return vec![None; ids.len()],
+            };
+        generator.set_max_num_chars(max_chars);
+
+        let mut results = Vec::with_capacity(ids.len());
+        for &id_val in ids {
+            let term = tantivy::Term::from_field_u64(self.core.id, id_val);
+            let id_query = tantivy::query::TermQuery::new(
+                term,
+                tantivy::schema::IndexRecordOption::Basic,
+            );
+            let top =
+                match searcher.search(&id_query, &tantivy::collector::TopDocs::with_limit(1)) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        results.push(None);
+                        continue;
+                    }
+                };
+            if let Some((_score, addr)) = top.first() {
+                match searcher.doc::<TantivyDocument>(*addr) {
+                    Ok(doc) => {
+                        let snippet = generator.snippet_from_doc(&doc);
+                        let html = snippet.to_html();
+                        if html.is_empty() {
+                            results.push(None);
+                        } else {
+                            results.push(Some(html));
+                        }
+                    }
+                    Err(_) => results.push(None),
+                }
+            } else {
+                results.push(None);
+            }
+        }
+        results
+    }
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -801,5 +862,45 @@ mod tests {
 
         let searcher = store.reader.searcher();
         assert_eq!(searcher.num_docs(), 0, "all docs must be deleted");
+    }
+
+    #[test]
+    fn generate_snippets_highlights_matching_terms() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store(&dir);
+        let core = store.core();
+
+        let mut writer = store.writer().unwrap();
+        let mut doc = TantivyDocument::default();
+        doc.add_u64(core.id, 1);
+        doc.add_text(core.external_id, "doc-1");
+        doc.add_text(core.content_hash, "h1");
+        doc.add_u64(core.chunk_index, 0);
+        doc.add_text(core.source_path, "/t.txt");
+        doc.add_text(core.source, "{}");
+        doc.add_text(
+            core.chunk_text,
+            "The SQL injection vulnerability allows remote code execution on the server",
+        );
+        writer.add_document(doc).unwrap();
+        writer.commit().unwrap();
+        store.reload().unwrap();
+
+        let snippets = store.generate_snippets("SQL injection", &[1], 150);
+        assert_eq!(snippets.len(), 1);
+        let snippet = snippets[0].as_ref().expect("snippet should be Some");
+        assert!(
+            snippet.contains("<b>"),
+            "snippet should contain highlight tags: {snippet}"
+        );
+    }
+
+    #[test]
+    fn generate_snippets_returns_none_for_missing_doc() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store(&dir);
+        let snippets = store.generate_snippets("test", &[999], 150);
+        assert_eq!(snippets.len(), 1);
+        assert!(snippets[0].is_none(), "missing doc should produce None");
     }
 }
