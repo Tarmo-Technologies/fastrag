@@ -9,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use fastrag::corpus::{CorpusError, SearchHitDto};
+use fastrag::default_separators;
 use fastrag::{DynEmbedder, DynEmbedderTrait, ops};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use serde::Deserialize;
@@ -372,12 +373,18 @@ pub async fn serve_http_with_registry(
         rerank_over_fetch: rerank_cfg.over_fetch,
     };
 
+    let max_body = app_state.ingest_max_body;
+
     // /health stays unauthenticated for liveness probes.
     let protected = Router::new()
         .route("/query", get(query))
         .route(
             "/batch-query",
             axum::routing::post(batch_query_handler).layer(DefaultBodyLimit::max(10 * 1024 * 1024)), // 10 MB
+        )
+        .route(
+            "/ingest",
+            axum::routing::post(ingest_handler).layer(DefaultBodyLimit::max(max_body)),
         )
         .route("/metrics", get(metrics_handler))
         // /corpora is inside the protected router intentionally: when tenant_field is set,
@@ -402,6 +409,223 @@ pub async fn serve_http_with_registry(
         .await
         .map_err(|e| HttpError::Server(e.to_string()))?;
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct IngestQueryParams {
+    /// Named corpus to ingest into. Defaults to "default".
+    #[serde(default = "default_corpus")]
+    corpus: String,
+    /// Field to use as the external record identifier.
+    id_field: String,
+    /// Comma-separated text fields whose content forms the record body.
+    text_fields: String,
+    /// Comma-separated fields to extract as metadata.
+    #[serde(default)]
+    metadata_fields: Option<String>,
+    /// Comma-separated type overrides (e.g. "cvss=numeric,published=date").
+    #[serde(default)]
+    metadata_types: Option<String>,
+    /// Comma-separated array fields.
+    #[serde(default)]
+    array_fields: Option<String>,
+    /// Chunking strategy: "recursive" (default), "basic".
+    #[serde(default = "default_chunk_strategy")]
+    chunk_strategy: String,
+    /// Max characters per chunk.
+    #[serde(default = "default_chunk_size")]
+    chunk_size: usize,
+    /// Overlap characters between chunks.
+    #[serde(default = "default_chunk_overlap")]
+    chunk_overlap: usize,
+}
+
+fn default_corpus() -> String {
+    "default".to_string()
+}
+fn default_chunk_strategy() -> String {
+    "recursive".to_string()
+}
+fn default_chunk_size() -> usize {
+    1000
+}
+fn default_chunk_overlap() -> usize {
+    200
+}
+
+#[derive(Debug, serde::Serialize)]
+struct IngestResponse {
+    corpus: String,
+    records_new: usize,
+    records_updated: usize,
+    records_unchanged: usize,
+    chunks_added: usize,
+}
+
+async fn ingest_handler(
+    State(state): State<AppState>,
+    tenant_ext: Option<Extension<TenantFilter>>,
+    Query(params): Query<IngestQueryParams>,
+    body: axum::body::Bytes,
+) -> Result<Json<IngestResponse>, Response> {
+    // 1. Validate body size (belt-and-suspenders; the layer also enforces this).
+    if body.len() > state.ingest_max_body {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "body exceeds ingest-max-body",
+        )
+            .into_response());
+    }
+
+    // 2. Resolve corpus directory.
+    let corpus_dir = state.registry.corpus_path(&params.corpus).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("corpus {:?} not found", params.corpus),
+        )
+            .into_response()
+    })?;
+
+    // 3. Parse config from query params.
+    let text_fields: Vec<String> = params
+        .text_fields
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let metadata_fields: Vec<String> = params
+        .metadata_fields
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim().to_string())
+        .collect();
+    let metadata_types: std::collections::BTreeMap<String, fastrag_store::schema::TypedKind> =
+        params
+            .metadata_types
+            .as_deref()
+            .unwrap_or("")
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| {
+                let (k, v) = s.split_once('=')?;
+                let kind = match v.trim() {
+                    "numeric" => fastrag_store::schema::TypedKind::Numeric,
+                    "date" => fastrag_store::schema::TypedKind::Date,
+                    "bool" => fastrag_store::schema::TypedKind::Bool,
+                    "array" => fastrag_store::schema::TypedKind::Array,
+                    _ => return None,
+                };
+                Some((k.trim().to_string(), kind))
+            })
+            .collect();
+    let array_fields: Vec<String> = params
+        .array_fields
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim().to_string())
+        .collect();
+
+    let config = fastrag::ingest::jsonl::JsonlIngestConfig {
+        text_fields,
+        id_field: params.id_field.clone(),
+        metadata_fields,
+        metadata_types,
+        array_fields,
+    };
+
+    // 4. Build ChunkingStrategy from params.
+    let chunking = match params.chunk_strategy.as_str() {
+        "basic" => fastrag::ChunkingStrategy::Basic {
+            max_characters: params.chunk_size,
+            overlap: params.chunk_overlap,
+        },
+        _ => fastrag::ChunkingStrategy::RecursiveCharacter {
+            max_characters: params.chunk_size,
+            overlap: params.chunk_overlap,
+            separators: default_separators(),
+        },
+    };
+
+    // 5. Inject tenant metadata if active.
+    let mut body_bytes = body.to_vec();
+    if let Some(Extension(ref tf)) = tenant_ext {
+        let mut output = Vec::new();
+        for line in body_bytes.split(|b| *b == b'\n') {
+            if line.is_empty() {
+                continue;
+            }
+            let mut record: serde_json::Value = serde_json::from_slice(line).map_err(|e| {
+                (StatusCode::BAD_REQUEST, format!("malformed JSON: {e}")).into_response()
+            })?;
+            if let Some(obj) = record.as_object_mut() {
+                obj.insert(
+                    tf.field.clone(),
+                    serde_json::Value::String(tf.value.clone()),
+                );
+            }
+            serde_json::to_writer(&mut output, &record).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("JSON write error: {e}"),
+                )
+                    .into_response()
+            })?;
+            output.push(b'\n');
+        }
+        body_bytes = output;
+    }
+
+    // 6. Write to temp file.
+    let tmp = tempfile::NamedTempFile::new().map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("tempfile: {e}")).into_response()
+    })?;
+    std::fs::write(tmp.path(), &body_bytes).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("write tempfile: {e}"),
+        )
+            .into_response()
+    })?;
+
+    // 7. Acquire write lock for this corpus.
+    let lock = get_or_create_lock(&state.ingest_locks, &params.corpus);
+    let _write_guard = lock.write().await;
+
+    // 8. Run ingest in blocking thread.
+    let tmp_path = tmp.path().to_path_buf();
+    let corpus_dir_clone = corpus_dir.clone();
+    let embedder = state.embedder.clone();
+    let stats = tokio::task::spawn_blocking(move || {
+        fastrag::ingest::engine::index_jsonl(
+            &tmp_path,
+            &corpus_dir_clone,
+            &chunking,
+            embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
+            &config,
+        )
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")).into_response())?
+    .map_err(|e| {
+        let status = if e.to_string().contains("embed") {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (status, format!("ingest error: {e}")).into_response()
+    })?;
+
+    // 9. Return stats.
+    Ok(Json(IngestResponse {
+        corpus: params.corpus,
+        records_new: stats.records_new,
+        records_updated: stats.records_upserted.saturating_sub(stats.records_new),
+        records_unchanged: stats.records_skipped,
+        chunks_added: stats.chunks_created,
+    }))
 }
 
 async fn health() -> impl IntoResponse {
