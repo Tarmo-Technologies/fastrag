@@ -164,6 +164,18 @@ async fn main() {
             security_kev_catalog,
             #[cfg(feature = "hygiene")]
             security_reject_statuses,
+            #[cfg(feature = "store")]
+            ingest_format,
+            #[cfg(feature = "store")]
+            text_fields,
+            #[cfg(feature = "store")]
+            id_field,
+            #[cfg(feature = "store")]
+            metadata_fields,
+            #[cfg(feature = "store")]
+            metadata_types,
+            #[cfg(feature = "store")]
+            array_fields,
         } => {
             #[cfg(feature = "contextual")]
             {
@@ -181,6 +193,67 @@ async fn main() {
                 }
             }
             tokio::task::block_in_place(|| {
+                #[cfg(feature = "store")]
+                {
+                    let is_jsonl = ingest_format.as_deref() == Some("jsonl")
+                        || input.extension().map(|e| e == "jsonl").unwrap_or(false);
+
+                    if is_jsonl {
+                        let config = fastrag::ingest::jsonl::JsonlIngestConfig {
+                            text_fields: text_fields.unwrap_or_default(),
+                            id_field: id_field.unwrap_or_else(|| "id".into()),
+                            metadata_fields: metadata_fields.unwrap_or_default(),
+                            metadata_types: parse_metadata_types(
+                                &metadata_types.unwrap_or_default(),
+                            ),
+                            array_fields: array_fields.unwrap_or_default(),
+                        };
+                        let chunking = chunking_from_args(
+                            chunk_strategy,
+                            chunk_size,
+                            chunk_overlap,
+                            chunk_separators,
+                            similarity_threshold,
+                            percentile_threshold,
+                        );
+                        let opts = embed_loader::EmbedderOptions {
+                            kind: embedder,
+                            model_path,
+                            openai_model,
+                            openai_base_url,
+                            ollama_model,
+                            ollama_url,
+                        };
+                        let embedder = embed_loader::load_for_write(&opts).unwrap_or_else(|e| {
+                            eprintln!("Error loading embedder: {e}");
+                            std::process::exit(1);
+                        });
+                        match fastrag::ingest::engine::index_jsonl(
+                            &input,
+                            &corpus,
+                            &chunking,
+                            embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
+                            &config,
+                        ) {
+                            Ok(stats) => {
+                                println!(
+                                    "Indexed {} records ({} new, {} upserted, {} skipped), {} chunks",
+                                    stats.records_total,
+                                    stats.records_new,
+                                    stats.records_upserted,
+                                    stats.records_skipped,
+                                    stats.chunks_created,
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("Error indexing JSONL {}: {e}", input.display());
+                                std::process::exit(1);
+                            }
+                        }
+                        return;
+                    }
+                }
+
                 let chunking = chunking_from_args(
                     chunk_strategy,
                     chunk_size,
@@ -588,6 +661,76 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        #[cfg(feature = "store")]
+        Command::Delete { corpus, id } => {
+            tokio::task::block_in_place(|| {
+                let opts = embed_loader::EmbedderOptions {
+                    kind: None,
+                    model_path: None,
+                    openai_model: String::new(),
+                    openai_base_url: String::new(),
+                    ollama_model: String::new(),
+                    ollama_url: String::new(),
+                };
+                let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
+                    eprintln!("Error loading embedder: {e}");
+                    std::process::exit(1);
+                });
+                let mut store = fastrag_store::Store::open(
+                    &corpus,
+                    embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Error opening corpus: {e}");
+                    std::process::exit(1);
+                });
+                let deleted = store.delete_by_external_id(&id).unwrap_or_else(|e| {
+                    eprintln!("Error deleting: {e}");
+                    std::process::exit(1);
+                });
+                store.save().unwrap_or_else(|e| {
+                    eprintln!("Error saving: {e}");
+                    std::process::exit(1);
+                });
+                println!("Deleted {} chunks for external ID '{}'", deleted.len(), id);
+            });
+        }
+        #[cfg(feature = "store")]
+        Command::Compact { corpus } => {
+            tokio::task::block_in_place(|| {
+                let opts = embed_loader::EmbedderOptions {
+                    kind: None,
+                    model_path: None,
+                    openai_model: String::new(),
+                    openai_base_url: String::new(),
+                    ollama_model: String::new(),
+                    ollama_url: String::new(),
+                };
+                let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
+                    eprintln!("Error loading embedder: {e}");
+                    std::process::exit(1);
+                });
+                let mut store = fastrag_store::Store::open(
+                    &corpus,
+                    embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("Error opening corpus: {e}");
+                    std::process::exit(1);
+                });
+                let before = store.tombstone_count();
+                store.compact();
+                store.save().unwrap_or_else(|e| {
+                    eprintln!("Error saving: {e}");
+                    std::process::exit(1);
+                });
+                println!(
+                    "Compacted: purged {} tombstones, {} live entries",
+                    before,
+                    store.live_count()
+                );
+            });
+        }
         #[cfg(feature = "mcp")]
         Command::Serve => {
             fastrag_mcp::serve_stdio().await.unwrap();
@@ -630,6 +773,26 @@ fn chunking_from_args(
             percentile_threshold,
         },
     }
+}
+
+#[cfg(feature = "store")]
+fn parse_metadata_types(
+    types: &[String],
+) -> std::collections::BTreeMap<String, fastrag_store::schema::TypedKind> {
+    let mut map = std::collections::BTreeMap::new();
+    for entry in types {
+        if let Some((k, v)) = entry.split_once('=') {
+            let kind = match v {
+                "string" => fastrag_store::schema::TypedKind::String,
+                "numeric" => fastrag_store::schema::TypedKind::Numeric,
+                "bool" => fastrag_store::schema::TypedKind::Bool,
+                "date" => fastrag_store::schema::TypedKind::Date,
+                _ => continue,
+            };
+            map.insert(k.to_string(), kind);
+        }
+    }
+    map
 }
 
 #[cfg(feature = "contextual")]

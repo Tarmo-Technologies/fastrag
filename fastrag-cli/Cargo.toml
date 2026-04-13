@@ -17,6 +17,7 @@ fastrag-embed = { workspace = true, optional = true }
 fastrag-rerank = { workspace = true, optional = true }
 fastrag-eval = { workspace = true, optional = true }
 fastrag-context = { workspace = true, optional = true }
+fastrag-store = { workspace = true, optional = true }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 indicatif = "0.17"
@@ -32,7 +33,7 @@ subtle = "2"
 dirs.workspace = true
 
 [features]
-default = ["language-detection", "mcp", "retrieval", "rerank"]
+default = ["language-detection", "mcp", "retrieval", "rerank", "store"]
 language-detection = ["fastrag/language-detection"]
 mcp = ["dep:fastrag-mcp"]
 retrieval = [
@@ -63,6 +64,7 @@ contextual-llama = [
     "fastrag-embed/llama-cpp",
 ]
 eval = ["dep:fastrag-eval", "dep:fastrag-embed", "fastrag-embed/legacy-candle", "fastrag-embed/test-utils"]
+store = ["dep:fastrag-store", "fastrag/store"]
 nvd = ["fastrag/nvd"]
 hygiene = ["fastrag/hygiene"]
 

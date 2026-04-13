@@ -230,6 +230,36 @@ pub enum Command {
         #[cfg(feature = "hygiene")]
         #[arg(long, default_value = "Rejected,Disputed")]
         security_reject_statuses: String,
+
+        /// Input format (auto-detect from extension, or specify explicitly)
+        #[cfg(feature = "store")]
+        #[arg(long = "format")]
+        ingest_format: Option<String>,
+
+        /// JSONL: fields to concatenate as embeddable text
+        #[cfg(feature = "store")]
+        #[arg(long, value_delimiter = ',')]
+        text_fields: Option<Vec<String>>,
+
+        /// JSONL: field to use as stable external ID
+        #[cfg(feature = "store")]
+        #[arg(long)]
+        id_field: Option<String>,
+
+        /// JSONL: fields to index as typed metadata
+        #[cfg(feature = "store")]
+        #[arg(long, value_delimiter = ',')]
+        metadata_fields: Option<Vec<String>>,
+
+        /// JSONL: explicit type overrides (field=type, e.g. cvss_score=numeric)
+        #[cfg(feature = "store")]
+        #[arg(long, value_delimiter = ',')]
+        metadata_types: Option<Vec<String>>,
+
+        /// JSONL: fields that contain arrays
+        #[cfg(feature = "store")]
+        #[arg(long, value_delimiter = ',')]
+        array_fields: Option<Vec<String>>,
     },
 
     /// Query an indexed corpus
@@ -446,7 +476,7 @@ pub enum Command {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
 
-        /// Shared-secret auth token. Also read from FASTRAG_TOKEN env var; CLI flag wins.
+        /// Shared-secret auth token. Also read from `FASTRAG_TOKEN` env var; CLI flag wins.
         /// When set, /query and /metrics require `X-Fastrag-Token: <token>` or
         /// `Authorization: Bearer <token>`. /health stays unauthenticated.
         #[arg(long)]
@@ -470,6 +500,26 @@ pub enum Command {
         #[cfg(feature = "rerank")]
         #[arg(long, default_value_t = 10)]
         rerank_over_fetch: usize,
+    },
+
+    /// Delete a record by external ID from a store-backed corpus
+    #[cfg(feature = "store")]
+    Delete {
+        /// Path to corpus directory
+        #[arg(long)]
+        corpus: PathBuf,
+
+        /// External ID of the record to delete
+        #[arg(long)]
+        id: String,
+    },
+
+    /// Compact corpus HNSW index (purge tombstones, rebuild graph)
+    #[cfg(feature = "store")]
+    Compact {
+        /// Path to corpus directory
+        #[arg(long)]
+        corpus: PathBuf,
     },
 }
 
