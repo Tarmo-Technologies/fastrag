@@ -5,8 +5,8 @@
 
 pub mod client;
 
+use crate::RerankHit;
 use fastrag_embed::llama_cpp::{LlamaServerConfig, LlamaServerHandle, ModelSource};
-use fastrag_index::SearchHit;
 
 use crate::RerankError;
 use crate::Reranker;
@@ -63,12 +63,12 @@ impl Reranker for BgeRerankerV2M3Llama {
         "bge-reranker-v2-m3-Q8_0-GGUF"
     }
 
-    fn rerank(&self, query: &str, mut hits: Vec<SearchHit>) -> Result<Vec<SearchHit>, RerankError> {
+    fn rerank(&self, query: &str, mut hits: Vec<RerankHit>) -> Result<Vec<RerankHit>, RerankError> {
         if hits.is_empty() {
             return Ok(hits);
         }
 
-        let documents: Vec<&str> = hits.iter().map(|h| h.entry.chunk_text.as_str()).collect();
+        let documents: Vec<&str> = hits.iter().map(|h| h.chunk_text.as_str()).collect();
         let results: Vec<RerankResult> = self.client.rerank(query, &documents, documents.len())?;
 
         // Map scores back to hits by index

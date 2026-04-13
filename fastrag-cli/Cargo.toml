@@ -32,7 +32,7 @@ subtle = "2"
 dirs.workspace = true
 
 [features]
-default = ["language-detection", "mcp", "retrieval", "rerank", "hybrid"]
+default = ["language-detection", "mcp", "retrieval", "rerank"]
 language-detection = ["fastrag/language-detection"]
 mcp = ["dep:fastrag-mcp"]
 retrieval = [
@@ -55,7 +55,6 @@ rerank-llama = [
     "fastrag-rerank/llama-cpp",
     "fastrag-embed/llama-cpp",
 ]
-hybrid = ["retrieval", "fastrag/hybrid"]
 contextual = ["retrieval", "fastrag/contextual", "dep:fastrag-context"]
 contextual-llama = [
     "contextual",

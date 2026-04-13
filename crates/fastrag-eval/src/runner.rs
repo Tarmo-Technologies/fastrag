@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Instant;
 
 use hdrhistogram::Histogram;
@@ -12,7 +11,9 @@ use crate::report::{EvalReport, LatencyStats, MemoryStats};
 
 use fastrag_core::ChunkingStrategy;
 use fastrag_embed::{CANARY_TEXT, Canary, DynEmbedderTrait, PassageText, QueryText};
-use fastrag_index::{CorpusManifest, HnswIndex, IndexEntry, ManifestChunkingStrategy, VectorIndex};
+use fastrag_index::{
+    CorpusManifest, HnswIndex, ManifestChunkingStrategy, VectorEntry, VectorIndex,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ChunkRecord {
@@ -53,7 +54,7 @@ impl<'a> Runner<'a> {
     pub fn run(&self) -> EvalResult<EvalReport> {
         let mut memory_peak = sample_current_rss_bytes();
         let build_started = Instant::now();
-        let index = index_documents_with_memory(
+        let (index, id_to_doc) = index_documents_with_memory(
             self.dataset,
             self.embedder,
             &self.chunking,
@@ -85,7 +86,7 @@ impl<'a> Runner<'a> {
             let retrieved = unique_doc_ids(
                 &hits
                     .iter()
-                    .map(|hit| hit.entry.source_path.to_string_lossy().to_string())
+                    .filter_map(|hit| id_to_doc.get(&hit.id).cloned())
                     .collect::<Vec<_>>(),
             );
             let ground_truth = gt_by_query.get(&query.id).cloned().unwrap_or_default();
@@ -186,7 +187,9 @@ pub fn index_documents(
     chunking: &ChunkingStrategy,
 ) -> EvalResult<HnswIndex> {
     let mut memory_peak = sample_current_rss_bytes();
-    index_documents_with_memory(dataset, embedder, chunking, &mut memory_peak)
+    let (index, _id_to_doc) =
+        index_documents_with_memory(dataset, embedder, chunking, &mut memory_peak)?;
+    Ok(index)
 }
 
 fn index_documents_with_memory(
@@ -194,7 +197,7 @@ fn index_documents_with_memory(
     embedder: &dyn DynEmbedderTrait,
     chunking: &ChunkingStrategy,
     memory_peak: &mut u64,
-) -> EvalResult<HnswIndex> {
+) -> EvalResult<(HnswIndex, HashMap<u64, String>)> {
     let canary_vec = embedder
         .embed_passage_dyn(&[PassageText::new(CANARY_TEXT)])
         .map_err(|e| EvalError::MalformedDataset(e.to_string()))?
@@ -259,19 +262,12 @@ fn index_documents_with_memory(
     }
 
     let mut entries = Vec::with_capacity(chunk_records.len());
+    let mut id_to_doc: HashMap<u64, String> = HashMap::new();
     for (chunk, vector) in chunk_records.into_iter().zip(vectors.into_iter()) {
-        entries.push(IndexEntry {
+        id_to_doc.insert(next_id, chunk.doc_id);
+        entries.push(VectorEntry {
             id: next_id,
             vector,
-            chunk_text: chunk.text,
-            source_path: PathBuf::from(chunk.doc_id),
-            chunk_index: chunk.chunk_index,
-            section: chunk.title,
-            element_kinds: Vec::new(),
-            pages: Vec::new(),
-            language: None,
-            metadata: std::collections::BTreeMap::new(),
-            display_text: None,
         });
         next_id += 1;
         *memory_peak = (*memory_peak).max(sample_current_rss_bytes());
@@ -279,7 +275,7 @@ fn index_documents_with_memory(
 
     index.add(entries)?;
     *memory_peak = (*memory_peak).max(sample_current_rss_bytes());
-    Ok(index)
+    Ok((index, id_to_doc))
 }
 
 fn chunk_document(
@@ -468,6 +464,7 @@ fn chunking_name(chunking: &ChunkingStrategy) -> String {
 mod tests {
     use super::*;
     use fastrag_embed::test_utils::MockEmbedder;
+    use std::path::PathBuf;
 
     fn tiny_dataset() -> EvalDataset {
         crate::dataset::EvalDataset::load(PathBuf::from(concat!(

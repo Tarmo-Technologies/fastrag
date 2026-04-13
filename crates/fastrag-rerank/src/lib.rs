@@ -4,7 +4,6 @@
 //! relevance scores using a cross-encoder, and returns the list sorted by
 //! descending score. Used as an opt-in pipeline stage after HNSW retrieval.
 
-use fastrag_index::SearchHit;
 use thiserror::Error;
 
 #[cfg(feature = "llama-cpp")]
@@ -22,35 +21,31 @@ pub enum RerankError {
     Io(#[from] std::io::Error),
 }
 
+/// Lightweight hit for reranking — carries only what the cross-encoder needs.
+#[derive(Debug, Clone)]
+pub struct RerankHit {
+    pub id: u64,
+    pub chunk_text: String,
+    pub score: f32,
+}
+
 pub trait Reranker: Send + Sync {
     fn model_id(&self) -> &'static str;
 
     /// Score each hit against the query and return hits sorted by descending score.
     /// The implementation overwrites `hit.score` with the cross-encoder score.
-    fn rerank(&self, query: &str, hits: Vec<SearchHit>) -> Result<Vec<SearchHit>, RerankError>;
+    fn rerank(&self, query: &str, hits: Vec<RerankHit>) -> Result<Vec<RerankHit>, RerankError>;
 }
 
 #[cfg(any(feature = "test-utils", test))]
 pub mod test_utils {
     use super::*;
 
-    /// Build a `SearchHit` for testing. Produces a hit with the given id, text,
-    /// and initial score; all other fields are filled with defaults.
-    pub fn test_hit(id: u64, text: &str, score: f32) -> SearchHit {
-        SearchHit {
-            entry: fastrag_index::IndexEntry {
-                id,
-                vector: vec![],
-                chunk_text: text.to_string(),
-                source_path: std::path::PathBuf::from(format!("/tmp/doc{id}.txt")),
-                chunk_index: 0,
-                section: None,
-                element_kinds: vec![fastrag_index::ElementKind::Paragraph],
-                pages: vec![],
-                language: None,
-                metadata: std::collections::BTreeMap::new(),
-                display_text: None,
-            },
+    /// Build a `RerankHit` for testing.
+    pub fn test_hit(id: u64, text: &str, score: f32) -> RerankHit {
+        RerankHit {
+            id,
+            chunk_text: text.to_string(),
             score,
         }
     }
@@ -67,15 +62,15 @@ pub mod test_utils {
         fn rerank(
             &self,
             query: &str,
-            mut hits: Vec<SearchHit>,
-        ) -> Result<Vec<SearchHit>, RerankError> {
+            mut hits: Vec<RerankHit>,
+        ) -> Result<Vec<RerankHit>, RerankError> {
             let q_tokens: Vec<String> = query
                 .to_lowercase()
                 .split_whitespace()
                 .map(|s| s.to_string())
                 .collect();
             for hit in &mut hits {
-                let text = hit.entry.chunk_text.to_lowercase();
+                let text = hit.chunk_text.to_lowercase();
                 let overlap = q_tokens
                     .iter()
                     .filter(|t| text.contains(t.as_str()))
@@ -99,7 +94,6 @@ mod tests {
 
     #[test]
     fn mock_reranker_reorders_by_lexical_overlap() {
-        // Initial order (by first-stage HNSW score) puts irrelevant hit first.
         let hits = vec![
             test_hit(1, "the quick brown fox", 0.9),
             test_hit(2, "rust async runtime concurrency", 0.8),
@@ -107,14 +101,11 @@ mod tests {
         ];
         let reranked = MockReranker.rerank("rust async runtime", hits).unwrap();
 
-        // Hit 2 contains all three query terms → should be first.
-        assert_eq!(reranked[0].entry.id, 2);
+        assert_eq!(reranked[0].id, 2);
         assert_eq!(reranked[0].score, 3.0);
-        // Hit 3 contains two terms.
-        assert_eq!(reranked[1].entry.id, 3);
+        assert_eq!(reranked[1].id, 3);
         assert_eq!(reranked[1].score, 2.0);
-        // Hit 1 contains none.
-        assert_eq!(reranked[2].entry.id, 1);
+        assert_eq!(reranked[2].id, 1);
         assert_eq!(reranked[2].score, 0.0);
     }
 

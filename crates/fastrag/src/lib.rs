@@ -25,7 +25,7 @@ pub use fastrag_embed::{DynEmbedder, DynEmbedderTrait, EmbedError as EmbedderErr
 pub use fastrag_html::HtmlParser;
 #[cfg(feature = "index")]
 pub use fastrag_index::{
-    CorpusManifest, HnswIndex, IndexEntry, IndexError, ManifestChunkingStrategy, SearchHit,
+    CorpusManifest, HnswIndex, IndexError, ManifestChunkingStrategy, VectorEntry, VectorHit,
     VectorIndex,
 };
 #[cfg(feature = "markdown")]

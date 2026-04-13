@@ -9,7 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use fastrag::corpus::{CorpusError, SearchHitDto};
-use fastrag::{DynEmbedder, DynEmbedderTrait, SearchHit, ops};
+use fastrag::{DynEmbedder, DynEmbedderTrait, ops};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use serde::Deserialize;
 use serde_json::json;
@@ -88,8 +88,9 @@ struct QueryParams {
     /// Comma-separated equality filters: `customer=acme,severity=high`.
     #[serde(default)]
     filter: Option<String>,
-    /// Set to `dense-only` to skip BM25/Tantivy for this request.
+    /// Search mode (currently ignored — hybrid removed; dense-only is the only path).
     #[serde(default)]
+    #[allow(dead_code)]
     mode: Option<String>,
     /// Set to `off` to skip reranking for this request.
     #[serde(default)]
@@ -241,81 +242,35 @@ fn run_query(
     state: &AppState,
     params: &QueryParams,
     filter_map: &std::collections::BTreeMap<String, String>,
-) -> Result<Vec<SearchHit>, CorpusError> {
-    let dense_only = state.dense_only || params.mode.as_deref() == Some("dense-only");
-
-    #[cfg(feature = "hybrid")]
-    let use_hybrid = !dense_only;
-    #[cfg(not(feature = "hybrid"))]
-    let use_hybrid = {
-        let _ = dense_only;
-        false
-    };
+) -> Result<Vec<SearchHitDto>, CorpusError> {
+    let _ = state.dense_only; // hybrid removed; dense-only is the only path
 
     #[cfg(feature = "rerank")]
     {
         let skip = params.rerank.as_deref() == Some("off");
         if !skip && let Some(ref reranker) = state.reranker {
             let over_fetch = params.over_fetch.unwrap_or(state.rerank_over_fetch);
-            return if use_hybrid {
-                #[cfg(feature = "hybrid")]
-                {
-                    ops::query_corpus_hybrid_reranked(
-                        &state.corpus_dir,
-                        &params.q,
-                        params.top_k,
-                        over_fetch,
-                        state.embedder.as_ref() as &dyn DynEmbedderTrait,
-                        reranker.as_ref(),
-                        filter_map,
-                        &mut fastrag::corpus::LatencyBreakdown::default(),
-                    )
-                }
-                #[cfg(not(feature = "hybrid"))]
-                {
-                    unreachable!()
-                }
-            } else {
-                ops::query_corpus_reranked(
-                    &state.corpus_dir,
-                    &params.q,
-                    params.top_k,
-                    over_fetch,
-                    state.embedder.as_ref() as &dyn DynEmbedderTrait,
-                    reranker.as_ref(),
-                    filter_map,
-                    &mut fastrag::corpus::LatencyBreakdown::default(),
-                )
-            };
-        }
-    }
-
-    if use_hybrid {
-        #[cfg(feature = "hybrid")]
-        {
-            ops::query_corpus_hybrid(
+            return ops::query_corpus_reranked(
                 &state.corpus_dir,
                 &params.q,
                 params.top_k,
+                over_fetch,
                 state.embedder.as_ref() as &dyn DynEmbedderTrait,
+                reranker.as_ref(),
                 filter_map,
                 &mut fastrag::corpus::LatencyBreakdown::default(),
-            )
+            );
         }
-        #[cfg(not(feature = "hybrid"))]
-        {
-            unreachable!()
-        }
-    } else {
-        ops::query_corpus_with_filter(
-            &state.corpus_dir,
-            &params.q,
-            params.top_k,
-            state.embedder.as_ref() as &dyn DynEmbedderTrait,
-            filter_map,
-            &mut fastrag::corpus::LatencyBreakdown::default(),
-        )
     }
+
+    ops::query_corpus_with_filter(
+        &state.corpus_dir,
+        &params.q,
+        params.top_k,
+        state.embedder.as_ref() as &dyn DynEmbedderTrait,
+        filter_map,
+        &mut fastrag::corpus::LatencyBreakdown::default(),
+    )
 }
 
 async fn query(
@@ -353,7 +308,6 @@ async fn query(
         Ok(hits) => {
             span.record("hit_count", hits.len());
             info!("query served");
-            let hits = hits.into_iter().map(SearchHitDto::from).collect::<Vec<_>>();
             Ok(Json(hits))
         }
         Err(err) => {

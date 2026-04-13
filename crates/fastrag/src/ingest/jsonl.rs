@@ -140,10 +140,12 @@ pub fn parse_jsonl<R: Read>(
             })?;
 
         // --- external_id ---
-        let id_val = obj.get(&config.id_field).ok_or_else(|| JsonlError::MissingField {
-            line: line_no,
-            field: config.id_field.clone(),
-        })?;
+        let id_val = obj
+            .get(&config.id_field)
+            .ok_or_else(|| JsonlError::MissingField {
+                line: line_no,
+                field: config.id_field.clone(),
+            })?;
         let external_id = match id_val {
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Number(n) => n.to_string(),
@@ -181,7 +183,9 @@ pub fn parse_jsonl<R: Read>(
             let force_array = config.array_fields.contains(field);
 
             let kind = if force_array {
-                inferred_kinds.entry(field.clone()).or_insert(TypedKind::Array);
+                inferred_kinds
+                    .entry(field.clone())
+                    .or_insert(TypedKind::Array);
                 TypedKind::Array
             } else if let Some(explicit) = config.metadata_types.get(field) {
                 inferred_kinds.entry(field.clone()).or_insert(*explicit);
@@ -203,14 +207,13 @@ pub fn parse_jsonl<R: Read>(
                 val.clone()
             };
 
-            let typed = to_typed_value(&effective_val, &kind).ok_or_else(|| {
-                JsonlError::TypeMismatch {
+            let typed =
+                to_typed_value(&effective_val, &kind).ok_or_else(|| JsonlError::TypeMismatch {
                     line: line_no,
                     field: field.clone(),
                     expected: kind,
                     got: json_type_name(val).to_string(),
-                }
-            })?;
+                })?;
 
             metadata.push((field.clone(), typed));
         }
@@ -287,7 +290,10 @@ mod tests {
 
         assert_eq!(rec.external_id, "CVE-2024-0001");
         assert_eq!(rec.text, "Buffer overflow\n\nA heap overflow in foo");
-        assert!(!rec.content_hash.is_empty(), "content_hash must not be empty");
+        assert!(
+            !rec.content_hash.is_empty(),
+            "content_hash must not be empty"
+        );
         assert_eq!(rec.metadata.len(), 3);
 
         // Check field_defs types

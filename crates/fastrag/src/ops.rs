@@ -7,10 +7,6 @@ use crate::{
     ChunkingStrategy, ContextInjection, Document, Element, FastRagError, FileFormat, OutputFormat,
 };
 
-#[cfg(feature = "hybrid")]
-pub use crate::corpus::query_corpus_hybrid;
-#[cfg(all(feature = "hybrid", feature = "rerank"))]
-pub use crate::corpus::query_corpus_hybrid_reranked;
 #[cfg(feature = "rerank")]
 pub use crate::corpus::query_corpus_reranked;
 #[cfg(feature = "retrieval")]

@@ -93,6 +93,16 @@ impl HnswIndex {
         &self.manifest
     }
 
+    /// Read-only access to the raw vector entries.
+    pub fn entries(&self) -> &[VectorEntry] {
+        &self.entries
+    }
+
+    /// Highest id among all entries, or 0 if empty.
+    pub fn max_id(&self) -> u64 {
+        self.entries.iter().map(|e| e.id).max().unwrap_or(0)
+    }
+
     pub fn replace_manifest(&mut self, manifest: crate::manifest::CorpusManifest) {
         self.manifest = manifest;
     }
@@ -256,11 +266,11 @@ impl crate::VectorIndex for HnswIndex {
         let fetch_k = top_k + self.tombstones.len();
 
         for result in self.graph.search(&query, &mut search).take(fetch_k) {
-            let entry = self
-                .entry_by_index(*result.value)
-                .ok_or_else(|| IndexError::CorruptCorpus {
-                    message: format!("missing entry at index {}", result.value),
-                })?;
+            let entry =
+                self.entry_by_index(*result.value)
+                    .ok_or_else(|| IndexError::CorruptCorpus {
+                        message: format!("missing entry at index {}", result.value),
+                    })?;
             if self.tombstones.contains(&entry.id) {
                 continue;
             }
@@ -510,10 +520,7 @@ mod tests {
                 3,
             )
             .unwrap();
-        assert_eq!(
-            hits.iter().map(|h| h.id).collect::<Vec<_>>(),
-            vec![1, 2, 3]
-        );
+        assert_eq!(hits.iter().map(|h| h.id).collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 
     #[test]
@@ -648,7 +655,10 @@ mod tests {
                 3,
             )
             .unwrap();
-        assert!(hits.iter().all(|h| h.id != 1), "tombstoned id 1 must not appear");
+        assert!(
+            hits.iter().all(|h| h.id != 1),
+            "tombstoned id 1 must not appear"
+        );
         assert_eq!(hits.len(), 2);
     }
 

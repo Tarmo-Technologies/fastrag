@@ -399,13 +399,7 @@ async fn main() {
                 #[cfg(not(feature = "rerank"))]
                 let use_rerank = false;
 
-                #[cfg(feature = "hybrid")]
-                let use_hybrid = !dense_only;
-                #[cfg(not(feature = "hybrid"))]
-                let use_hybrid = {
-                    let _ = dense_only;
-                    false
-                };
+                let _ = dense_only; // hybrid removed; dense-only is the only path
 
                 let result = if use_rerank {
                     #[cfg(feature = "rerank")]
@@ -415,54 +409,18 @@ async fn main() {
                                 eprintln!("Error loading reranker: {e}");
                                 std::process::exit(1);
                             });
-                        if use_hybrid {
-                            #[cfg(feature = "hybrid")]
-                            {
-                                ops::query_corpus_hybrid_reranked(
-                                    &corpus,
-                                    &query,
-                                    top_k,
-                                    rerank_over_fetch,
-                                    embedder.as_ref() as &dyn DynEmbedderTrait,
-                                    reranker.as_ref(),
-                                    &filter_map,
-                                    &mut fastrag::corpus::LatencyBreakdown::default(),
-                                )
-                            }
-                            #[cfg(not(feature = "hybrid"))]
-                            {
-                                unreachable!()
-                            }
-                        } else {
-                            ops::query_corpus_reranked(
-                                &corpus,
-                                &query,
-                                top_k,
-                                rerank_over_fetch,
-                                embedder.as_ref() as &dyn DynEmbedderTrait,
-                                reranker.as_ref(),
-                                &filter_map,
-                                &mut fastrag::corpus::LatencyBreakdown::default(),
-                            )
-                        }
-                    }
-                    #[cfg(not(feature = "rerank"))]
-                    {
-                        unreachable!()
-                    }
-                } else if use_hybrid {
-                    #[cfg(feature = "hybrid")]
-                    {
-                        ops::query_corpus_hybrid(
+                        ops::query_corpus_reranked(
                             &corpus,
                             &query,
                             top_k,
+                            rerank_over_fetch,
                             embedder.as_ref() as &dyn DynEmbedderTrait,
+                            reranker.as_ref(),
                             &filter_map,
                             &mut fastrag::corpus::LatencyBreakdown::default(),
                         )
                     }
-                    #[cfg(not(feature = "hybrid"))]
+                    #[cfg(not(feature = "rerank"))]
                     {
                         unreachable!()
                     }
@@ -703,8 +661,7 @@ fn print_contextualizer_info(corpus: &Path, info: &fastrag::corpus::CorpusInfo) 
 }
 
 #[cfg(feature = "retrieval")]
-fn print_query_results(hits: &[fastrag::SearchHit], format: OutputFormatArg) {
-    let dtos: Vec<fastrag::corpus::SearchHitDto> = hits.iter().cloned().map(Into::into).collect();
+fn print_query_results(dtos: &[fastrag::corpus::SearchHitDto], format: OutputFormatArg) {
     match format {
         OutputFormatArg::Json => println!("{}", serde_json::to_string_pretty(&dtos).unwrap()),
         OutputFormatArg::Jsonl => {

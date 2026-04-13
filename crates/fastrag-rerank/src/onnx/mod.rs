@@ -9,7 +9,7 @@ pub mod model_source;
 use std::path::Path;
 use std::sync::Mutex;
 
-use fastrag_index::SearchHit;
+use crate::RerankHit;
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::TensorRef;
 
@@ -176,12 +176,12 @@ impl Reranker for GteModernBertReranker {
         Self::MODEL_ID
     }
 
-    fn rerank(&self, query: &str, mut hits: Vec<SearchHit>) -> Result<Vec<SearchHit>, RerankError> {
+    fn rerank(&self, query: &str, mut hits: Vec<RerankHit>) -> Result<Vec<RerankHit>, RerankError> {
         if hits.is_empty() {
             return Ok(hits);
         }
 
-        let passages: Vec<&str> = hits.iter().map(|h| h.entry.chunk_text.as_str()).collect();
+        let passages: Vec<&str> = hits.iter().map(|h| h.chunk_text.as_str()).collect();
         let scores = self.score_pairs(query, &passages)?;
 
         if scores.len() != hits.len() {
@@ -268,8 +268,8 @@ mod tests {
             );
         }
         // The Paris-related hits should score higher than the Rust hit
-        let rust_hit = reranked.iter().find(|h| h.entry.id == 2).unwrap();
-        let capital_hit = reranked.iter().find(|h| h.entry.id == 1).unwrap();
+        let rust_hit = reranked.iter().find(|h| h.id == 2).unwrap();
+        let capital_hit = reranked.iter().find(|h| h.id == 1).unwrap();
         assert!(
             capital_hit.score > rust_hit.score,
             "capital hit ({}) should score higher than rust hit ({})",

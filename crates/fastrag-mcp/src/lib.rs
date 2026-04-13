@@ -318,11 +318,7 @@ impl FastRagMcpServer {
                 )
             })?;
 
-            let dto = hits
-                .into_iter()
-                .map(fastrag::corpus::SearchHitDto::from)
-                .collect::<Vec<_>>();
-            return serde_json::to_string_pretty(&dto)
+            return serde_json::to_string_pretty(&hits)
                 .map_err(|e| format!("Failed to serialize result: {e}"));
         }
 

@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-fastrag-index.workspace = true
 thiserror.workspace = true
 
 # ONNX backend (optional)

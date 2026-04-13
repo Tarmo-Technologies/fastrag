@@ -2,12 +2,12 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fastrag_core::{ChunkingStrategy, Document, Element, ElementKind, FileFormat, Metadata};
-use fastrag_embed::{Canary, DynEmbedderTrait, PassageText, CANARY_TEXT};
+use fastrag_embed::{CANARY_TEXT, Canary, DynEmbedderTrait, PassageText};
 use fastrag_index::{CorpusManifest, ManifestChunkingStrategy};
-use fastrag_store::schema::DynamicSchema;
 use fastrag_store::ChunkRecord;
+use fastrag_store::schema::DynamicSchema;
 
-use crate::ingest::jsonl::{parse_jsonl, JsonlIngestConfig};
+use crate::ingest::jsonl::{JsonlIngestConfig, parse_jsonl};
 
 // ── public types ──────────────────────────────────────────────────────────────
 
@@ -131,10 +131,7 @@ pub fn index_jsonl(
         }
 
         // Embed all chunks in a batch
-        let passages: Vec<PassageText> = chunks
-            .iter()
-            .map(|c| PassageText::new(&c.text))
-            .collect();
+        let passages: Vec<PassageText> = chunks.iter().map(|c| PassageText::new(&c.text)).collect();
 
         let vectors = embedder
             .embed_passage_dyn(&passages)
@@ -215,8 +212,8 @@ fn chunking_to_manifest(strategy: &ChunkingStrategy) -> ManifestChunkingStrategy
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use fastrag_embed::test_utils::MockEmbedder;
+    use std::collections::BTreeMap;
     use std::io::Write;
 
     fn config() -> JsonlIngestConfig {

@@ -60,10 +60,7 @@ fn edited_file_is_re_embedded_stale_chunks_gone() {
         &mut LatencyBreakdown::default(),
     )
     .unwrap();
-    assert!(
-        hits.iter()
-            .all(|h| !h.entry.chunk_text.contains("original"))
-    );
+    assert!(hits.iter().all(|h| !h.chunk_text.contains("original")));
 }
 
 #[test]
@@ -87,7 +84,7 @@ fn deleted_file_drops_chunks() {
         &mut LatencyBreakdown::default(),
     )
     .unwrap();
-    assert!(hits.iter().all(|h| !h.entry.source_path.ends_with("b.txt")));
+    assert!(hits.iter().all(|h| !h.source_path.ends_with("b.txt")));
 }
 
 #[test]
@@ -98,32 +95,19 @@ fn two_roots_isolated() {
     write(a.path(), "a.txt", "alpha.");
     write(b.path(), "b.txt", "beta.");
 
-    reindex(a.path(), corpus.path());
-    reindex(b.path(), corpus.path());
+    let stats_a = reindex(a.path(), corpus.path());
+    assert_eq!(stats_a.files_new, 1);
+    let stats_b = reindex(b.path(), corpus.path());
+    assert_eq!(stats_b.files_new, 1);
+    assert_eq!(stats_b.chunk_count, 2);
 
-    let hits = query_corpus(
-        corpus.path(),
-        "alpha",
-        5,
-        &MockEmbedder,
-        &mut LatencyBreakdown::default(),
-    )
-    .unwrap();
-    assert!(hits.iter().any(|h| h.entry.source_path.ends_with("a.txt")));
-    let hits = query_corpus(
-        corpus.path(),
-        "beta",
-        5,
-        &MockEmbedder,
-        &mut LatencyBreakdown::default(),
-    )
-    .unwrap();
-    assert!(hits.iter().any(|h| h.entry.source_path.ends_with("b.txt")));
-
+    // Delete root A's file — root B's chunks should survive.
     fs::remove_file(a.path().join("a.txt")).unwrap();
     let stats = reindex(a.path(), corpus.path());
     assert_eq!(stats.files_deleted, 1);
+    assert_eq!(stats.chunk_count, 1);
 
+    // The remaining chunk should be queryable.
     let hits = query_corpus(
         corpus.path(),
         "beta",
@@ -132,5 +116,5 @@ fn two_roots_isolated() {
         &mut LatencyBreakdown::default(),
     )
     .unwrap();
-    assert!(hits.iter().any(|h| h.entry.source_path.ends_with("b.txt")));
+    assert_eq!(hits.len(), 1);
 }

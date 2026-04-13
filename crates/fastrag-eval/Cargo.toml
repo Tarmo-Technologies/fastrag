@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 chrono = { workspace = true }
 dirs.workspace = true
-fastrag = { workspace = true, features = ["retrieval", "rerank", "hybrid"] }
+fastrag = { workspace = true, features = ["retrieval", "rerank"] }
 fastrag-core.workspace = true
 fastrag-nvd.workspace = true
 fastrag-embed.workspace = true

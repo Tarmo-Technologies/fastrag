@@ -4,10 +4,10 @@ pub mod tantivy;
 
 use std::path::{Path, PathBuf};
 
+use ::tantivy::TantivyDocument;
+use ::tantivy::schema::{Field, Value};
 use fastrag_index::{CorpusManifest, HnswIndex, VectorEntry, VectorIndex};
 use serde::{Deserialize, Serialize};
-use ::tantivy::schema::{Field, Value};
-use ::tantivy::TantivyDocument;
 
 use crate::error::StoreResult;
 use crate::schema::{DynamicSchema, FieldDef, TypedValue};
@@ -183,7 +183,9 @@ impl Store {
     /// Returns the internal IDs that were tombstoned.
     pub fn delete_by_external_id(&mut self, external_id: &str) -> StoreResult<Vec<u64>> {
         let mut writer = self.tantivy.writer()?;
-        let deleted_ids = self.tantivy.delete_by_external_id(&mut writer, external_id)?;
+        let deleted_ids = self
+            .tantivy
+            .delete_by_external_id(&mut writer, external_id)?;
         writer.commit()?;
         drop(writer);
         self.tantivy.reload()?;
@@ -222,12 +224,13 @@ impl Store {
         let core = self.tantivy.core();
 
         // Build a score lookup
-        let score_map: std::collections::HashMap<u64, f32> =
-            scored_ids.iter().copied().collect();
+        let score_map: std::collections::HashMap<u64, f32> = scored_ids.iter().copied().collect();
 
         // Group by external_id
-        let mut groups: std::collections::HashMap<String, (f32, Option<serde_json::Value>, Vec<ChunkHit>)> =
-            std::collections::HashMap::new();
+        let mut groups: std::collections::HashMap<
+            String,
+            (f32, Option<serde_json::Value>, Vec<ChunkHit>),
+        > = std::collections::HashMap::new();
 
         for doc in &docs {
             let id = doc.get_first(core.id).and_then(|v| v.as_u64()).unwrap_or(0);
@@ -339,8 +342,7 @@ fn add_typed_value_to_doc(doc: &mut TantivyDocument, field: Field, value: &Typed
         TypedValue::Bool(b) => doc.add_u64(field, if *b { 1 } else { 0 }),
         TypedValue::Date(d) => {
             let dt = d.and_hms_opt(0, 0, 0).unwrap();
-            let tantivy_dt =
-                ::tantivy::DateTime::from_timestamp_secs(dt.and_utc().timestamp());
+            let tantivy_dt = ::tantivy::DateTime::from_timestamp_secs(dt.and_utc().timestamp());
             doc.add_date(field, tantivy_dt);
         }
         TypedValue::Array(arr) => {
@@ -356,9 +358,9 @@ fn add_typed_value_to_doc(doc: &mut TantivyDocument, field: Field, value: &Typed
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::{FieldDef, TypedKind};
     use fastrag_embed::{Canary, EmbedderIdentity, PrefixScheme};
     use fastrag_index::{CorpusManifest, ManifestChunkingStrategy};
-    use crate::schema::{FieldDef, TypedKind};
     use tempfile::TempDir;
 
     fn test_manifest() -> CorpusManifest {
@@ -403,15 +405,17 @@ mod tests {
             source_json: Some(r#"{"origin":"test"}"#.to_string()),
             chunk_text: text.to_string(),
             vector: vec![1.0, 0.0, 0.0],
-            user_fields: vec![("severity".to_string(), TypedValue::String("high".to_string()))],
+            user_fields: vec![(
+                "severity".to_string(),
+                TypedValue::String("high".to_string()),
+            )],
         }
     }
 
     #[test]
     fn store_add_fetch_round_trip() {
         let dir = TempDir::new().unwrap();
-        let mut store =
-            Store::create(dir.path(), test_manifest(), severity_schema()).unwrap();
+        let mut store = Store::create(dir.path(), test_manifest(), severity_schema()).unwrap();
 
         let rec1 = make_chunk(1, "finding-001", 0, "First chunk of finding 001");
         let rec2 = make_chunk(2, "finding-001", 1, "Second chunk of finding 001");
@@ -433,8 +437,7 @@ mod tests {
     #[test]
     fn store_upsert_and_delete() {
         let dir = TempDir::new().unwrap();
-        let mut store =
-            Store::create(dir.path(), test_manifest(), DynamicSchema::new()).unwrap();
+        let mut store = Store::create(dir.path(), test_manifest(), DynamicSchema::new()).unwrap();
 
         let rec = ChunkRecord {
             id: 10,
@@ -461,7 +464,11 @@ mod tests {
 
         store.compact();
 
-        assert_eq!(store.tombstone_count(), 0, "tombstone_count must be 0 after compact");
+        assert_eq!(
+            store.tombstone_count(),
+            0,
+            "tombstone_count must be 0 after compact"
+        );
         assert_eq!(store.live_count(), 0, "live_count must be 0 after compact");
     }
 }

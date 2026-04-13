@@ -110,18 +110,27 @@ mod tests {
             assert_eq!(kind, back, "round-trip failed for {kind:?}");
         }
         // also verify the lowercase wire format
-        assert_eq!(serde_json::to_string(&TypedKind::String).unwrap(), "\"string\"");
-        assert_eq!(serde_json::to_string(&TypedKind::Numeric).unwrap(), "\"numeric\"");
+        assert_eq!(
+            serde_json::to_string(&TypedKind::String).unwrap(),
+            "\"string\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TypedKind::Numeric).unwrap(),
+            "\"numeric\""
+        );
     }
 
     #[test]
     fn typed_value_serde_round_trip() {
         let values: Vec<TypedValue> = vec![
             TypedValue::Bool(true),
-            TypedValue::Numeric(3.14),
+            TypedValue::Numeric(3.15),
             TypedValue::String("hello".to_string()),
             TypedValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()),
-            TypedValue::Array(vec![TypedValue::String("a".to_string()), TypedValue::Numeric(1.0)]),
+            TypedValue::Array(vec![
+                TypedValue::String("a".to_string()),
+                TypedValue::Numeric(1.0),
+            ]),
         ];
         for value in &values {
             let json = serde_json::to_string(value).unwrap();
@@ -145,7 +154,11 @@ mod tests {
         let mut schema = DynamicSchema::new();
         schema.merge(string_field("title")).unwrap();
         schema.merge(string_field("title")).unwrap(); // same type — no error
-        assert_eq!(schema.user_fields.len(), 1, "duplicate field must not be added");
+        assert_eq!(
+            schema.user_fields.len(),
+            1,
+            "duplicate field must not be added"
+        );
     }
 
     #[test]

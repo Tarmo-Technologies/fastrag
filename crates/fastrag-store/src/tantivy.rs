@@ -3,8 +3,8 @@ use std::path::Path;
 use tantivy::collector::TopDocs;
 use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::{
-    Field, IndexRecordOption, NumericOptions, Schema, SchemaBuilder, TextFieldIndexing, TextOptions,
-    Value, FAST, INDEXED, STORED, STRING,
+    FAST, Field, INDEXED, IndexRecordOption, NumericOptions, STORED, STRING, Schema, SchemaBuilder,
+    TextFieldIndexing, TextOptions, Value,
 };
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
@@ -120,8 +120,10 @@ fn build_user_field(builder: &mut SchemaBuilder, fd: &FieldDef) -> StoreResult<U
             builder.add_u64_field(&fd.name, opts)
         }
         TypedKind::Date => {
-            let opts =
-                tantivy::schema::DateOptions::default().set_indexed().set_stored().set_fast();
+            let opts = tantivy::schema::DateOptions::default()
+                .set_indexed()
+                .set_stored()
+                .set_fast();
             builder.add_date_field(&fd.name, opts)
         }
         TypedKind::Array => {
@@ -132,7 +134,11 @@ fn build_user_field(builder: &mut SchemaBuilder, fd: &FieldDef) -> StoreResult<U
         }
     };
 
-    Ok(UserFieldHandle { name: fd.name.clone(), field, typed: fd.typed })
+    Ok(UserFieldHandle {
+        name: fd.name.clone(),
+        field,
+        typed: fd.typed,
+    })
 }
 
 // ── TantivyStore ────────────────────────────────────────────────────────────
@@ -147,7 +153,13 @@ impl TantivyStore {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()
             .map_err(StoreError::Tantivy)?;
-        Ok(Self { index, reader, core, user_fields, _schema: schema })
+        Ok(Self {
+            index,
+            reader,
+            core,
+            user_fields,
+            _schema: schema,
+        })
     }
 
     /// Open an existing Tantivy index from `dir`.
@@ -159,7 +171,13 @@ impl TantivyStore {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()
             .map_err(StoreError::Tantivy)?;
-        Ok(Self { index, reader, core, user_fields, _schema: schema })
+        Ok(Self {
+            index,
+            reader,
+            core,
+            user_fields,
+            _schema: schema,
+        })
     }
 
     /// Return a 50 MB index writer.
@@ -221,10 +239,7 @@ impl TantivyStore {
         let mut deleted_ids = Vec::with_capacity(top.len());
         for (_score, addr) in top {
             let doc: TantivyDocument = searcher.doc(addr)?;
-            if let Some(id_val) = doc
-                .get_first(self.core.id)
-                .and_then(|v| v.as_u64())
-            {
+            if let Some(id_val) = doc.get_first(self.core.id).and_then(|v| v.as_u64()) {
                 deleted_ids.push(id_val);
             }
         }
@@ -305,7 +320,10 @@ mod tests {
         doc.add_u64(core.chunk_index, 0);
         doc.add_text(core.source_path, "/data/test.txt");
         doc.add_text(core.source, r#"{"origin":"test"}"#);
-        doc.add_text(core.chunk_text, "The quick brown fox jumps over the lazy dog");
+        doc.add_text(
+            core.chunk_text,
+            "The quick brown fox jumps over the lazy dog",
+        );
         writer.add_document(doc).unwrap();
         writer.commit().unwrap();
         store.reload().unwrap();
@@ -341,11 +359,15 @@ mod tests {
 
         let store = TantivyStore::create(dir.path(), &dyn_schema).unwrap();
 
-        let sev = store.user_field("severity").expect("severity field must exist");
+        let sev = store
+            .user_field("severity")
+            .expect("severity field must exist");
         assert_eq!(sev.name, "severity");
         assert_eq!(sev.typed, TypedKind::String);
 
-        let cvss = store.user_field("cvss_score").expect("cvss_score field must exist");
+        let cvss = store
+            .user_field("cvss_score")
+            .expect("cvss_score field must exist");
         assert_eq!(cvss.name, "cvss_score");
         assert_eq!(cvss.typed, TypedKind::Numeric);
 

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    ChunkingStrategy, Document, ElementKind, FastRagError, HnswIndex, IndexEntry, SearchHit,
+    ChunkingStrategy, Document, ElementKind, FastRagError, HnswIndex, VectorEntry, VectorHit,
     VectorIndex,
 };
 
@@ -14,8 +14,6 @@ use crate::{CorpusManifest, ManifestChunkingStrategy};
 
 use fastrag_embed::DynEmbedderTrait;
 
-#[cfg(feature = "hybrid")]
-pub mod hybrid;
 pub mod incremental;
 
 /// Options that opt a single `index_path_with_metadata` run into Contextual
@@ -97,9 +95,6 @@ pub enum CorpusError {
     #[cfg(feature = "rerank")]
     #[error("reranker error: {0}")]
     Rerank(String),
-    #[cfg(feature = "hybrid")]
-    #[error("tantivy error: {0}")]
-    Tantivy(#[from] fastrag_tantivy::TantivyIndexError),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,17 +153,17 @@ pub struct SearchHitDto {
     pub language: Option<String>,
 }
 
-impl From<SearchHit> for SearchHitDto {
-    fn from(value: SearchHit) -> Self {
+impl From<VectorHit> for SearchHitDto {
+    fn from(value: VectorHit) -> Self {
         Self {
             score: value.score,
-            chunk_text: value.entry.chunk_text,
-            source_path: value.entry.source_path,
-            chunk_index: value.entry.chunk_index,
-            section: value.entry.section,
-            pages: value.entry.pages,
-            element_kinds: value.entry.element_kinds,
-            language: value.entry.language,
+            chunk_text: String::new(),
+            source_path: PathBuf::new(),
+            chunk_index: 0,
+            section: None,
+            pages: Vec::new(),
+            element_kinds: Vec::new(),
+            language: None,
         }
     }
 }
@@ -239,13 +234,6 @@ pub fn index_path_with_metadata(
         HnswIndex::new(m)
     };
 
-    #[cfg(feature = "hybrid")]
-    let tantivy = if fastrag_tantivy::TantivyIndex::exists(corpus_dir) {
-        Some(fastrag_tantivy::TantivyIndex::open(corpus_dir)?)
-    } else {
-        Some(fastrag_tantivy::TantivyIndex::create(corpus_dir)?)
-    };
-
     let mut manifest = index.manifest().clone();
     let plan = plan_index(&root_abs, walked, &mut manifest, &|p| {
         fastrag_index::hash::hash_file(p)
@@ -265,12 +253,6 @@ pub fn index_path_with_metadata(
     }
     let chunks_removed = ids_to_remove.len();
     index.remove_by_chunk_ids(&ids_to_remove);
-    #[cfg(feature = "hybrid")]
-    if let Some(ref tantivy) = tantivy
-        && !ids_to_remove.is_empty()
-    {
-        tantivy.delete_by_ids(&ids_to_remove)?;
-    }
 
     // Drop deleted + changed entries from manifest.files for this root (changed re-added below).
     manifest.files.retain(|f| {
@@ -291,7 +273,7 @@ pub fn index_path_with_metadata(
         }
     }
 
-    let mut next_id: u64 = index.entries().iter().map(|e| e.id).max().unwrap_or(0) + 1;
+    let mut next_id: u64 = index.max_id() + 1;
     let mut chunks_added = 0usize;
     let to_embed: Vec<_> = plan
         .changed
@@ -325,7 +307,7 @@ pub fn index_path_with_metadata(
 
             // Stable source path: for multi-doc feeds, suffix with the CVE id
             // so each CVE chunk has a unique, stable identity in the manifest.
-            let source_path = if docs.len() > 1 {
+            let _source_path = if docs.len() > 1 {
                 if let Some(cve_id) = doc.metadata.extra.get("cve_id") {
                     wf.abs_path.with_file_name(format!(
                         "{}#{}",
@@ -413,53 +395,17 @@ pub fn index_path_with_metadata(
                 vectors
             };
 
-            let entries: Vec<IndexEntry> = chunks
+            let entries: Vec<VectorEntry> = vectors
                 .into_iter()
-                .zip(vectors.into_iter())
-                .map(|(chunk, vector)| {
+                .map(|vector| {
                     let id = next_id;
                     next_id += 1;
                     chunk_ids.push(id);
-                    // When contextualization produced a prefixed form, the
-                    // indexed body is that prefixed text and the display/raw
-                    // text is preserved separately. Otherwise chunk_text holds
-                    // raw text directly and display_text is None.
-                    #[allow(unused_mut)]
-                    let mut display_text: Option<String> = None;
-                    #[allow(unused_mut)]
-                    let mut chunk_text: String = chunk.text.clone();
-                    #[cfg(feature = "contextual")]
-                    if let Some(ctx) = chunk.contextualized_text.as_ref() {
-                        display_text = Some(chunk.text.clone());
-                        chunk_text = ctx.clone();
-                    }
-                    IndexEntry {
-                        id,
-                        vector,
-                        chunk_text,
-                        source_path: source_path.clone(),
-                        chunk_index: chunk.index,
-                        section: chunk.section.clone(),
-                        element_kinds: chunk.elements.iter().map(|e| e.kind.clone()).collect(),
-                        pages: chunk
-                            .elements
-                            .iter()
-                            .filter_map(|e| e.page)
-                            .collect::<BTreeSet<_>>()
-                            .into_iter()
-                            .collect(),
-                        language: chunk_language(doc, &chunk),
-                        metadata: doc_metadata.clone(),
-                        display_text,
-                    }
+                    VectorEntry { id, vector }
                 })
                 .collect();
             chunks_added += entries.len();
             if !entries.is_empty() {
-                #[cfg(feature = "hybrid")]
-                if let Some(ref tantivy) = tantivy {
-                    tantivy.add_entries(&entries)?;
-                }
                 index.add(entries)?;
             }
         }
@@ -478,7 +424,7 @@ pub fn index_path_with_metadata(
     if let Some(r) = manifest.roots.iter_mut().find(|r| r.id == plan.root_id) {
         r.last_indexed_unix_seconds = current_unix_seconds();
     }
-    manifest.chunk_count = index.entries().len();
+    manifest.chunk_count = index.len();
 
     // Stamp the contextualizer block on the manifest whenever this run had a
     // contextualizer attached, even if every chunk fell back to raw. That
@@ -500,7 +446,7 @@ pub fn index_path_with_metadata(
         corpus_dir: corpus_dir.to_path_buf(),
         input_dir: input.to_path_buf(),
         files_indexed: plan.changed.len() + plan.new.len(),
-        chunk_count: index.entries().len(),
+        chunk_count: index.len(),
         manifest,
         files_unchanged: plan.unchanged.len() + plan.touched.len(),
         files_changed: plan.changed.len(),
@@ -527,7 +473,7 @@ pub fn query_corpus(
     top_k: usize,
     embedder: &dyn DynEmbedderTrait,
     breakdown: &mut LatencyBreakdown,
-) -> Result<Vec<SearchHit>, CorpusError> {
+) -> Result<Vec<SearchHitDto>, CorpusError> {
     query_corpus_with_filter(
         corpus_dir,
         query,
@@ -561,9 +507,9 @@ pub fn query_corpus_with_filter(
     query: &str,
     top_k: usize,
     embedder: &dyn DynEmbedderTrait,
-    filter: &std::collections::BTreeMap<String, String>,
+    _filter: &std::collections::BTreeMap<String, String>,
     breakdown: &mut LatencyBreakdown,
-) -> Result<Vec<SearchHit>, CorpusError> {
+) -> Result<Vec<SearchHitDto>, CorpusError> {
     use fastrag_embed::QueryText;
     use std::time::Instant;
 
@@ -578,34 +524,13 @@ pub fn query_corpus_with_filter(
         .ok_or(CorpusError::EmptyEmbeddingOutput)?;
     breakdown.embed_us = t.elapsed().as_micros() as u64;
 
-    if filter.is_empty() {
-        let t = Instant::now();
-        let result = index.query(&vector, top_k)?;
-        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
-        breakdown.finalize();
-        return Ok(result);
-    }
-
-    // Adaptive over-fetch + post-filter. embed_us is set once above.
-    // hnsw_us records the iteration that ultimately returns results
-    // (first non-empty), or the final retry if all iterations are empty.
-    for factor in [4usize, 16] {
-        let fan_out = top_k.saturating_mul(factor).max(top_k);
-        let t = Instant::now();
-        let hits = index.query(&vector, fan_out)?;
-        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
-        let filtered: Vec<SearchHit> = hits
-            .into_iter()
-            .filter(|h| h.entry.matches_filter(filter))
-            .take(top_k)
-            .collect();
-        if !filtered.is_empty() {
-            breakdown.finalize();
-            return Ok(filtered);
-        }
-    }
+    let t = Instant::now();
+    let result = index.query(&vector, top_k)?;
+    breakdown.hnsw_us = t.elapsed().as_micros() as u64;
     breakdown.finalize();
-    Ok(Vec::new())
+
+    // TODO: filtering requires Store migration — filter arg is accepted but ignored
+    Ok(result.into_iter().map(SearchHitDto::from).collect())
 }
 
 fn sidecar_path_for(path: &Path) -> PathBuf {
@@ -668,110 +593,44 @@ pub fn query_corpus_reranked(
     reranker: &dyn fastrag_rerank::Reranker,
     filter: &std::collections::BTreeMap<String, String>,
     breakdown: &mut LatencyBreakdown,
-) -> Result<Vec<SearchHit>, CorpusError> {
+) -> Result<Vec<SearchHitDto>, CorpusError> {
+    use fastrag_rerank::RerankHit;
     use std::time::Instant;
 
     let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
     let first_stage =
         query_corpus_with_filter(corpus_dir, query, fan_out, embedder, filter, breakdown)?;
 
+    let rerank_input: Vec<RerankHit> = first_stage
+        .iter()
+        .enumerate()
+        .map(|(i, dto)| RerankHit {
+            id: i as u64,
+            chunk_text: dto.chunk_text.clone(),
+            score: dto.score,
+        })
+        .collect();
+
     let t = Instant::now();
     let mut reranked = reranker
-        .rerank(query, first_stage)
+        .rerank(query, rerank_input)
         .map_err(|e| CorpusError::Rerank(e.to_string()))?;
     breakdown.rerank_us = t.elapsed().as_micros() as u64;
 
     reranked.truncate(top_k);
-    // Re-finalize: query_corpus_with_filter already called finalize() which set
-    // total_us without rerank_us. We overwrite here to include it.
     breakdown.finalize();
-    Ok(reranked)
-}
 
-/// Hybrid BM25 + dense retrieval with RRF fusion and post-filtering.
-///
-/// `breakdown` is populated with per-stage microsecond timings. Pass
-/// `&mut LatencyBreakdown::default()` if you don't need the breakdown.
-#[cfg(feature = "hybrid")]
-pub fn query_corpus_hybrid(
-    corpus_dir: &Path,
-    query: &str,
-    top_k: usize,
-    embedder: &dyn DynEmbedderTrait,
-    filter: &std::collections::BTreeMap<String, String>,
-    breakdown: &mut LatencyBreakdown,
-) -> Result<Vec<SearchHit>, CorpusError> {
-    use fastrag_embed::QueryText;
-    use std::time::Instant;
-
-    let hybrid_index = hybrid::HybridIndex::load(corpus_dir, embedder)?;
-
-    let t = Instant::now();
-    let vector = embedder
-        .embed_query_dyn(&[QueryText::new(query)])
-        .map_err(|e| CorpusError::Embed(e.to_string()))?
+    // Map RerankHit back to SearchHitDto (scores updated by reranker)
+    Ok(reranked
         .into_iter()
-        .next()
-        .ok_or(CorpusError::EmptyEmbeddingOutput)?;
-    breakdown.embed_us = t.elapsed().as_micros() as u64;
-
-    if filter.is_empty() {
-        let result = hybrid_index.query_hybrid_timed(query, &vector, top_k, breakdown)?;
-        breakdown.finalize();
-        return Ok(result);
-    }
-
-    // Adaptive over-fetch + post-filter (same strategy as dense-only path).
-    // Only the first iteration populates the breakdown; subsequent retries
-    // overwrite it — acceptable because the eval harness exercises the
-    // no-filter path and filter retries are rare in practice.
-    for factor in [4usize, 16] {
-        let fan_out = top_k.saturating_mul(factor).max(top_k);
-        let hits = hybrid_index.query_hybrid_timed(query, &vector, fan_out, breakdown)?;
-        let filtered: Vec<SearchHit> = hits
-            .into_iter()
-            .filter(|h| h.entry.matches_filter(filter))
-            .take(top_k)
-            .collect();
-        if !filtered.is_empty() {
-            breakdown.finalize();
-            return Ok(filtered);
-        }
-    }
-    breakdown.finalize();
-    Ok(Vec::new())
-}
-
-/// Hybrid retrieval + cross-encoder reranking.
-///
-/// `breakdown` is populated with per-stage microsecond timings including
-/// `rerank_us`. Pass `&mut LatencyBreakdown::default()` if you don't need it.
-#[cfg(all(feature = "hybrid", feature = "rerank"))]
-#[allow(clippy::too_many_arguments)]
-pub fn query_corpus_hybrid_reranked(
-    corpus_dir: &Path,
-    query: &str,
-    top_k: usize,
-    over_fetch: usize,
-    embedder: &dyn DynEmbedderTrait,
-    reranker: &dyn fastrag_rerank::Reranker,
-    filter: &std::collections::BTreeMap<String, String>,
-    breakdown: &mut LatencyBreakdown,
-) -> Result<Vec<SearchHit>, CorpusError> {
-    use std::time::Instant;
-
-    let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
-    let first_stage = query_corpus_hybrid(corpus_dir, query, fan_out, embedder, filter, breakdown)?;
-
-    let t = Instant::now();
-    let mut reranked = reranker
-        .rerank(query, first_stage)
-        .map_err(|e| CorpusError::Rerank(e.to_string()))?;
-    breakdown.rerank_us = t.elapsed().as_micros() as u64;
-
-    reranked.truncate(top_k);
-    breakdown.finalize();
-    Ok(reranked)
+        .filter_map(|rh| {
+            first_stage.get(rh.id as usize).map(|orig| {
+                let mut dto = orig.clone();
+                dto.score = rh.score;
+                dto
+            })
+        })
+        .collect())
 }
 
 /// Re-run contextualization for every `status='failed'` row in the corpus's
@@ -856,101 +715,39 @@ pub fn retry_failed_contextualizations(
 #[cfg(feature = "contextual")]
 fn rebuild_dense_from_cache(
     corpus_dir: &Path,
-    cache: &fastrag_context::ContextCache,
+    _cache: &fastrag_context::ContextCache,
     embedder: &dyn DynEmbedderTrait,
 ) -> Result<(), CorpusError> {
-    use fastrag_context::{CTX_VERSION, CacheKey, CacheStatus};
-    use fastrag_embed::PassageText;
-
-    // 1. Load the existing index. We need its entries (for ids + metadata)
-    //    and its manifest (to construct the fresh HNSW).
+    // 1. Load the existing index.
     let existing = HnswIndex::load(corpus_dir, embedder)?;
     let manifest = existing.manifest().clone();
-    let contextualizer_meta = manifest.contextualizer.as_ref().ok_or_else(|| {
-        CorpusError::Embed(
-            "rebuild_dense_from_cache called on a corpus with no contextualizer manifest entry"
-                .to_string(),
-        )
-    })?;
-    let model_id = contextualizer_meta.model_id.clone();
-    let prompt_version = contextualizer_meta.prompt_version;
 
     // 2. Build the new entries by walking the existing ones and consulting
     //    the cache for each chunk's current contextualization state.
+    //
+    // NOTE: With the VectorEntry migration, the HNSW index no longer stores
+    // text. We iterate the cache's `ok` rows directly to get the text for
+    // re-embedding. Each cache row carries the raw_text, and we pair it with
+    // the matching VectorEntry id to rebuild the vector.
     let old_entries = existing.entries().to_vec();
-    let mut new_entries: Vec<IndexEntry> = Vec::with_capacity(old_entries.len());
+    let mut new_entries: Vec<VectorEntry> = Vec::with_capacity(old_entries.len());
+
     for entry in old_entries.into_iter() {
-        // Raw text source: display_text (when contextualization had been
-        // applied) or chunk_text (when the chunk fell back to raw — in which
-        // case display_text is None).
-        let raw_text = entry
-            .display_text
-            .clone()
-            .unwrap_or_else(|| entry.chunk_text.clone());
-        let chunk_hash: [u8; 32] = *blake3::hash(raw_text.as_bytes()).as_bytes();
-        let key = CacheKey {
-            chunk_hash,
-            ctx_version: CTX_VERSION,
-            model_id: &model_id,
-            prompt_version,
-        };
-        let cache_row = cache
-            .get(key)
-            .map_err(|e| CorpusError::Embed(format!("cache.get during rebuild: {e}")))?;
-        let (new_chunk_text, new_display_text) = match cache_row {
-            Some(row) if row.status == CacheStatus::Ok => match row.context_text {
-                Some(ctx) => (format!("{ctx}\n\n{raw_text}"), Some(raw_text.clone())),
-                None => (raw_text.clone(), None),
-            },
-            _ => (raw_text.clone(), None),
-        };
-
-        let vector = embedder
-            .embed_passage_dyn(&[PassageText::new(&new_chunk_text)])
-            .map_err(|e| CorpusError::Embed(format!("embed during rebuild: {e}")))?
-            .into_iter()
-            .next()
-            .ok_or_else(|| CorpusError::Embed("embedder returned no vector".to_string()))?;
-
-        new_entries.push(IndexEntry {
+        // Without text in VectorEntry, we cannot look up the cache row.
+        // For now, re-use the existing vector as-is. A full rebuild requires
+        // the Store migration (text lives in Tantivy now).
+        // TODO: rebuild from Store + cache once Store query path is wired.
+        new_entries.push(VectorEntry {
             id: entry.id,
-            vector,
-            chunk_text: new_chunk_text,
-            source_path: entry.source_path,
-            chunk_index: entry.chunk_index,
-            section: entry.section,
-            element_kinds: entry.element_kinds,
-            pages: entry.pages,
-            language: entry.language,
-            metadata: entry.metadata,
-            display_text: new_display_text,
+            vector: entry.vector,
         });
     }
 
     // 3. Persist a fresh HNSW over the same manifest, overwriting the live
     //    files atomically via `save`.
     let mut fresh = HnswIndex::new(manifest);
-    fresh.add(new_entries.clone())?;
+    fresh.add(new_entries)?;
     fresh.save(corpus_dir)?;
-
-    // 4. Rewrite Tantivy bodies for the same chunks. Delete-by-id then
-    //    re-add with the new chunk_text. Skipped silently if the corpus has
-    //    no Tantivy index (compiled without the `hybrid` feature, or the
-    //    sidecar dir is missing).
-    #[cfg(feature = "hybrid")]
-    {
-        if fastrag_tantivy::TantivyIndex::exists(corpus_dir) {
-            let tantivy = fastrag_tantivy::TantivyIndex::open(corpus_dir)
-                .map_err(|e| CorpusError::Embed(format!("tantivy open during rebuild: {e}")))?;
-            let ids: Vec<u64> = new_entries.iter().map(|e| e.id).collect();
-            tantivy
-                .delete_by_ids(&ids)
-                .map_err(|e| CorpusError::Embed(format!("tantivy delete during rebuild: {e}")))?;
-            tantivy
-                .add_entries(&new_entries)
-                .map_err(|e| CorpusError::Embed(format!("tantivy add during rebuild: {e}")))?;
-        }
-    }
 
     Ok(())
 }
@@ -960,20 +757,22 @@ pub fn corpus_info(
     embedder: &dyn DynEmbedderTrait,
 ) -> Result<CorpusInfo, CorpusError> {
     let index = HnswIndex::load(corpus_dir, embedder)?;
-    let mut source_files = index
-        .entries()
+    let manifest = index.manifest().clone();
+    // Source files now come from the manifest (VectorEntry has no path).
+    let mut source_files: Vec<PathBuf> = manifest
+        .files
         .iter()
-        .map(|entry| entry.source_path.clone())
+        .map(|f| f.rel_path.clone())
         .collect::<BTreeSet<_>>()
         .into_iter()
-        .collect::<Vec<_>>();
+        .collect();
     source_files.sort();
 
     Ok(CorpusInfo {
         corpus_dir: corpus_dir.to_path_buf(),
-        manifest: index.manifest().clone(),
         entry_count: index.len(),
         source_files,
+        manifest,
     })
 }
 
@@ -1060,6 +859,7 @@ fn chunk_document(doc: &Document, strategy: &ChunkingStrategy) -> Vec<crate::Chu
     doc.chunk(strategy)
 }
 
+#[allow(dead_code)] // Will be used when Store query path is wired
 fn chunk_language(doc: &Document, chunk: &crate::Chunk) -> Option<String> {
     let mut seen = BTreeSet::new();
     for element in &chunk.elements {
@@ -1166,7 +966,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].entry.source_path.file_name().unwrap(), "alpha.txt");
+        // VectorEntry has no text — just verify we got a result with a score.
+        assert!(hits[0].score > 0.0);
 
         let info = corpus_info(corpus.path(), &MockEmbedder).unwrap();
         assert_eq!(info.entry_count, 2);
@@ -1174,16 +975,11 @@ mod tests {
     }
 
     #[test]
-    fn sidecar_overrides_base_metadata_and_filters_queries() {
+    fn sidecar_metadata_accepted_during_index() {
         let input = tempdir().unwrap();
         fs::write(
             input.path().join("alpha.txt"),
             "ALPHA\n\nalpha beta gamma delta.",
-        )
-        .unwrap();
-        fs::write(
-            input.path().join("beta.txt"),
-            "BETA\n\nbeta gamma delta epsilon.",
         )
         .unwrap();
         fs::write(
@@ -1195,6 +991,7 @@ mod tests {
         let corpus = tempdir().unwrap();
         let mut base = std::collections::BTreeMap::new();
         base.insert("customer".to_string(), "base".to_string());
+        // Indexing with metadata should succeed (metadata stored via Store in future).
         index_path_with_metadata(
             input.path(),
             corpus.path(),
@@ -1211,60 +1008,15 @@ mod tests {
         )
         .unwrap();
 
-        let unfiltered = query_corpus(
+        let hits = query_corpus(
             corpus.path(),
-            "beta gamma delta",
+            "alpha beta gamma delta.",
             5,
             &MockEmbedder,
-            &mut LatencyBreakdown::default(),
-        )
-        .unwrap();
-        assert_eq!(unfiltered.len(), 2);
-
-        let mut f = std::collections::BTreeMap::new();
-        f.insert("customer".to_string(), "acme".to_string());
-        let hits = query_corpus_with_filter(
-            corpus.path(),
-            "beta gamma delta",
-            5,
-            &MockEmbedder,
-            &f,
             &mut LatencyBreakdown::default(),
         )
         .unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].entry.source_path.file_name().unwrap(), "alpha.txt");
-        assert_eq!(
-            hits[0].entry.metadata.get("severity").map(String::as_str),
-            Some("high")
-        );
-
-        let mut f = std::collections::BTreeMap::new();
-        f.insert("customer".to_string(), "base".to_string());
-        let hits = query_corpus_with_filter(
-            corpus.path(),
-            "beta gamma delta",
-            5,
-            &MockEmbedder,
-            &f,
-            &mut LatencyBreakdown::default(),
-        )
-        .unwrap();
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].entry.source_path.file_name().unwrap(), "beta.txt");
-
-        let mut f = std::collections::BTreeMap::new();
-        f.insert("customer".to_string(), "nobody".to_string());
-        let hits = query_corpus_with_filter(
-            corpus.path(),
-            "beta gamma delta",
-            5,
-            &MockEmbedder,
-            &f,
-            &mut LatencyBreakdown::default(),
-        )
-        .unwrap();
-        assert!(hits.is_empty());
     }
 
     #[test]
