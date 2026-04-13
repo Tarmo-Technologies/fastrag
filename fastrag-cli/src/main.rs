@@ -703,7 +703,7 @@ async fn main() {
                 rerank_cfg.over_fetch = rerank_over_fetch;
             }
 
-            if let Err(e) = fastrag_cli::http::serve_http_with_registry(
+            if let Err(e) = fastrag_cli::http::serve_http_with_registry_port(
                 registry,
                 port,
                 embedder,

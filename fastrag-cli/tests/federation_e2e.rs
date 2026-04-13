@@ -1,7 +1,7 @@
 //! Integration tests for multi-corpus federation.
 
 use fastrag::corpus::CorpusRegistry;
-use fastrag_cli::http::{HttpRerankerConfig, serve_http_with_registry_and_listener};
+use fastrag_cli::http::{HttpRerankerConfig, serve_http_with_registry};
 use fastrag_embed::test_utils::MockEmbedder;
 use std::sync::Arc;
 
@@ -33,7 +33,7 @@ async fn named_corpus_query() {
     registry.register("docs", dir.path().to_path_buf());
 
     tokio::spawn(async move {
-        serve_http_with_registry_and_listener(
+        serve_http_with_registry(
             registry,
             listener,
             e,
@@ -81,7 +81,7 @@ async fn get_corpora_lists_registry() {
     registry.register("nvd", dir.path().to_path_buf());
 
     tokio::spawn(async move {
-        serve_http_with_registry_and_listener(
+        serve_http_with_registry(
             registry,
             listener,
             e,
@@ -121,7 +121,7 @@ async fn default_corpus_used_when_no_corpus_param() {
     registry.register("default", dir.path().to_path_buf());
 
     tokio::spawn(async move {
-        serve_http_with_registry_and_listener(
+        serve_http_with_registry(
             registry,
             listener,
             e,

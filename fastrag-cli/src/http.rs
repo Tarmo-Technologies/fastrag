@@ -209,7 +209,7 @@ pub async fn serve_http_with_embedder(
 ) -> Result<(), HttpError> {
     let registry = fastrag::corpus::CorpusRegistry::new();
     registry.register("default", corpus_dir);
-    serve_http_with_registry_and_listener(
+    serve_http_with_registry(
         registry,
         listener,
         embedder,
@@ -223,7 +223,7 @@ pub async fn serve_http_with_embedder(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn serve_http_with_registry(
+pub async fn serve_http_with_registry_port(
     registry: fastrag::corpus::CorpusRegistry,
     port: u16,
     embedder: DynEmbedder,
@@ -234,7 +234,7 @@ pub async fn serve_http_with_registry(
     tenant_field: Option<String>,
 ) -> Result<(), HttpError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    serve_http_with_registry_and_listener(
+    serve_http_with_registry(
         registry,
         listener,
         embedder,
@@ -248,7 +248,7 @@ pub async fn serve_http_with_registry(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn serve_http_with_registry_and_listener(
+pub async fn serve_http_with_registry(
     registry: fastrag::corpus::CorpusRegistry,
     listener: tokio::net::TcpListener,
     embedder: DynEmbedder,
