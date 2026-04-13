@@ -353,10 +353,13 @@ pub fn corpus_stats(corpus_dir: &Path, corpus_name: &str) -> Result<CorpusStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct SearchHitDto {
     pub score: f32,
     pub chunk_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<serde_json::Value>,
     pub source_path: PathBuf,
     pub chunk_index: usize,
     pub section: Option<String>,
@@ -373,6 +376,8 @@ impl From<VectorHit> for SearchHitDto {
         Self {
             score: value.score,
             chunk_text: String::new(),
+            snippet: None,
+            source: None,
             source_path: PathBuf::new(),
             chunk_index: 0,
             section: None,
@@ -1019,6 +1024,8 @@ fn scored_ids_to_dtos(
             dtos.push(SearchHitDto {
                 score: chunk.score,
                 chunk_text: chunk.chunk_text.clone(),
+                snippet: None,
+                source: hit.source.clone(),
                 source_path: PathBuf::from(&hit.external_id),
                 chunk_index: chunk.chunk_index,
                 section: None,
