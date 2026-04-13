@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::{Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -256,7 +256,10 @@ pub async fn serve_http_with_embedder(
     // /health stays unauthenticated for liveness probes.
     let protected = Router::new()
         .route("/query", get(query))
-        .route("/batch-query", axum::routing::post(batch_query_handler))
+        .route(
+            "/batch-query",
+            axum::routing::post(batch_query_handler).layer(DefaultBodyLimit::max(10 * 1024 * 1024)), // 10 MB
+        )
         .route("/metrics", get(metrics_handler))
         .route_layer(middleware::from_fn_with_state(
             auth_state.clone(),
