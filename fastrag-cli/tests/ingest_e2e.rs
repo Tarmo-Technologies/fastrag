@@ -143,6 +143,88 @@ async fn ingest_rejects_unknown_corpus() {
 }
 
 #[tokio::test]
+async fn delete_removes_record() {
+    let corpus_dir = tempfile::tempdir().unwrap();
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus_dir.path().to_path_buf());
+
+    let embedder: fastrag::DynEmbedder = Arc::new(MockEmbedder);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        serve_http_with_registry(
+            registry,
+            listener,
+            embedder,
+            None,
+            false,
+            HttpRerankerConfig::default(),
+            100,
+            None,
+            52_428_800,
+        )
+        .await
+        .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::new();
+
+    // 1. Ingest one record
+    let body = r#"{"id":"doc-1","body":"SQL injection vulnerability"}"#;
+    let resp = client
+        .post(format!(
+            "http://{}/ingest?id_field=id&text_fields=body",
+            addr
+        ))
+        .header("content-type", "application/x-ndjson")
+        .body(format!("{}\n", body))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let ingest_json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(ingest_json["records_new"].as_u64().unwrap(), 1);
+
+    // 2. Verify query returns a hit
+    let resp = client
+        .get(format!("http://{}/query?q=SQL+injection&top_k=3", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let hits: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert!(!hits.is_empty(), "expected at least 1 hit before delete");
+
+    // 3. DELETE /ingest/doc-1
+    let resp = client
+        .delete(format!("http://{}/ingest/doc-1?corpus=default", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let delete_json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(delete_json["corpus"], "default");
+    assert_eq!(delete_json["id"], "doc-1");
+    assert_eq!(delete_json["deleted"], true);
+
+    // 4. Query again — expect 0 hits
+    let resp = client
+        .get(format!("http://{}/query?q=SQL+injection&top_k=3", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let hits: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert!(
+        hits.is_empty(),
+        "expected 0 hits after delete, got {}",
+        hits.len()
+    );
+}
+
+#[tokio::test]
 async fn ingest_rejects_oversized_body() {
     let corpus_dir = tempfile::tempdir().unwrap();
     let registry = CorpusRegistry::new();

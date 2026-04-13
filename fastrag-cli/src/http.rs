@@ -385,6 +385,7 @@ pub async fn serve_http_with_registry(
             "/ingest",
             axum::routing::post(ingest_handler).layer(DefaultBodyLimit::max(max_body)),
         )
+        .route("/ingest/:id", axum::routing::delete(delete_handler))
         .route("/metrics", get(metrics_handler))
         // /corpora is inside the protected router intentionally: when tenant_field is set,
         // listing corpora requires the X-Fastrag-Tenant header. This prevents corpus
@@ -450,6 +451,19 @@ fn default_chunk_size() -> usize {
 }
 fn default_chunk_overlap() -> usize {
     200
+}
+
+#[derive(Debug, Deserialize)]
+struct DeleteQueryParams {
+    #[serde(default = "default_corpus")]
+    corpus: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct DeleteResponse {
+    corpus: String,
+    id: String,
+    deleted: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -624,6 +638,44 @@ async fn ingest_handler(
         records_updated: stats.records_upserted,
         records_unchanged: stats.records_skipped,
         chunks_added: stats.chunks_created,
+    }))
+}
+
+async fn delete_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(params): Query<DeleteQueryParams>,
+) -> Result<Json<DeleteResponse>, Response> {
+    let corpus_dir = state.registry.corpus_path(&params.corpus).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("corpus {:?} not found", params.corpus),
+        )
+            .into_response()
+    })?;
+
+    let lock = get_or_create_lock(&state.ingest_locks, &params.corpus);
+    let _write_guard = lock.write().await;
+
+    let id_clone = id.clone();
+    let corpus_dir_clone = corpus_dir.clone();
+    let deleted_ids = tokio::task::spawn_blocking(move || {
+        let mut store = fastrag_store::Store::open_no_embedder(&corpus_dir_clone)
+            .map_err(|e| format!("open store: {e}"))?;
+        let ids = store
+            .delete_by_external_id(&id_clone)
+            .map_err(|e| format!("delete: {e}"))?;
+        store.save().map_err(|e| format!("save: {e}"))?;
+        Ok::<Vec<u64>, String>(ids)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")).into_response())?
+    .map_err(|e: String| (StatusCode::INTERNAL_SERVER_ERROR, e).into_response())?;
+
+    Ok(Json(DeleteResponse {
+        corpus: params.corpus,
+        id,
+        deleted: !deleted_ids.is_empty(),
     }))
 }
 
