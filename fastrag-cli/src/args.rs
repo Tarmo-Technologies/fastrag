@@ -536,6 +536,10 @@ pub enum Command {
         /// as a mandatory filter on all queries.
         #[arg(long)]
         tenant_field: Option<String>,
+
+        /// Maximum body size for POST /ingest (bytes). Default: 52428800 (50 MiB).
+        #[arg(long, default_value_t = 52_428_800)]
+        ingest_max_body: usize,
     },
 
     /// Delete a record by external ID from a store-backed corpus

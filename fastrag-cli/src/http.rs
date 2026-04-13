@@ -17,6 +17,17 @@ use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tracing::{info, info_span, warn};
 
+/// Per-corpus read-write locks. Ingest/delete acquire write; queries acquire read.
+type IngestLocks =
+    Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>;
+
+fn get_or_create_lock(locks: &IngestLocks, corpus: &str) -> Arc<tokio::sync::RwLock<()>> {
+    let mut map = locks.lock().expect("IngestLocks poisoned");
+    map.entry(corpus.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(())))
+        .clone()
+}
+
 #[derive(Clone)]
 struct AppState {
     registry: fastrag::corpus::CorpusRegistry,
@@ -25,6 +36,9 @@ struct AppState {
     dense_only: bool,
     batch_max_queries: usize,
     tenant_field: Option<String>,
+    ingest_locks: IngestLocks,
+    #[allow(dead_code)] // used by POST /ingest handler (Task 2)
+    ingest_max_body: usize,
     #[cfg(feature = "rerank")]
     reranker: Option<std::sync::Arc<dyn fastrag_rerank::Reranker>>,
     #[cfg(feature = "rerank")]
@@ -211,6 +225,7 @@ impl Default for HttpRerankerConfig {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn serve_http(
     corpus_dir: PathBuf,
     port: u16,
@@ -219,6 +234,7 @@ pub async fn serve_http(
     dense_only: bool,
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
+    ingest_max_body: usize,
 ) -> Result<(), HttpError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     serve_http_with_embedder(
@@ -229,10 +245,12 @@ pub async fn serve_http(
         dense_only,
         rerank_cfg,
         batch_max_queries,
+        ingest_max_body,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn serve_http_with_embedder(
     corpus_dir: PathBuf,
     listener: tokio::net::TcpListener,
@@ -241,6 +259,7 @@ pub async fn serve_http_with_embedder(
     dense_only: bool,
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
+    ingest_max_body: usize,
 ) -> Result<(), HttpError> {
     let registry = fastrag::corpus::CorpusRegistry::new();
     registry.register("default", corpus_dir);
@@ -253,6 +272,7 @@ pub async fn serve_http_with_embedder(
         rerank_cfg,
         batch_max_queries,
         None,
+        ingest_max_body,
     )
     .await
 }
@@ -267,6 +287,7 @@ pub async fn serve_http_with_registry_port(
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
     tenant_field: Option<String>,
+    ingest_max_body: usize,
 ) -> Result<(), HttpError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     serve_http_with_registry(
@@ -278,6 +299,7 @@ pub async fn serve_http_with_registry_port(
         rerank_cfg,
         batch_max_queries,
         tenant_field,
+        ingest_max_body,
     )
     .await
 }
@@ -292,6 +314,7 @@ pub async fn serve_http_with_registry(
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
     tenant_field: Option<String>,
+    ingest_max_body: usize,
 ) -> Result<(), HttpError> {
     // The `metrics` crate allows exactly one global recorder per process, but in
     // test binaries multiple serve_http_with_embedder calls share one process.
@@ -341,6 +364,8 @@ pub async fn serve_http_with_registry(
         dense_only,
         batch_max_queries,
         tenant_field,
+        ingest_locks: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        ingest_max_body,
         #[cfg(feature = "rerank")]
         reranker: rerank_cfg.reranker,
         #[cfg(feature = "rerank")]
@@ -493,6 +518,8 @@ async fn batch_query_handler(
             return Err((StatusCode::NOT_FOUND, "corpus not found").into_response());
         }
     };
+    let lock = get_or_create_lock(&state.ingest_locks, corpus_name);
+    let _read_guard = lock.read().await;
 
     // Parse all filters up front. Track per-query filter parse errors.
     let mut filter_errors: Vec<Option<String>> = vec![None; req.queries.len()];
@@ -639,6 +666,8 @@ async fn query(
     };
 
     let corpus_name = params.corpus.as_deref().unwrap_or("default");
+    let lock = get_or_create_lock(&state.ingest_locks, corpus_name);
+    let _read_guard = lock.read().await;
     let result = run_query(&state, &params, filter_expr.as_ref(), corpus_name);
 
     let elapsed = start.elapsed();

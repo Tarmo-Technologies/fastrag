@@ -37,6 +37,7 @@ async fn start_server(
             false,
             HttpRerankerConfig::default(),
             100,
+            52_428_800,
         )
         .await
         .unwrap();

@@ -659,6 +659,7 @@ async fn main() {
             rerank_over_fetch,
             batch_max_queries,
             tenant_field,
+            ingest_max_body,
         } => {
             let token = token.or_else(|| std::env::var("FASTRAG_TOKEN").ok());
 
@@ -712,6 +713,7 @@ async fn main() {
                 rerank_cfg,
                 batch_max_queries,
                 tenant_field,
+                ingest_max_body,
             )
             .await
             {
