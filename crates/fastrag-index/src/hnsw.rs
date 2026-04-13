@@ -1,9 +1,10 @@
 use instant_distance::{Builder, HnswMap, Point, Search};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::entry::{IndexEntry, SearchHit};
+use crate::entry::{VectorEntry, VectorHit};
 use crate::error::{IndexError, IndexResult};
 use fastrag_embed::DynEmbedderTrait;
 
@@ -22,7 +23,9 @@ impl Point for VectorPoint {
 pub struct HnswIndex {
     dim: usize,
     manifest: crate::manifest::CorpusManifest,
-    entries: Vec<IndexEntry>,
+    entries: Vec<VectorEntry>,
+    #[serde(default)]
+    tombstones: HashSet<u64>,
     graph: HnswMap<VectorPoint, usize>,
 }
 
@@ -34,6 +37,7 @@ impl HnswIndex {
             dim,
             manifest,
             entries: Vec::new(),
+            tombstones: HashSet::new(),
             graph,
         }
     }
@@ -65,7 +69,7 @@ impl HnswIndex {
         Ok(())
     }
 
-    fn entry_by_index(&self, idx: usize) -> Option<&IndexEntry> {
+    fn entry_by_index(&self, idx: usize) -> Option<&VectorEntry> {
         self.entries.get(idx)
     }
 
@@ -81,22 +85,47 @@ impl HnswIndex {
         dir.join("entries.bin")
     }
 
+    fn tombstones_path(dir: &Path) -> PathBuf {
+        dir.join("tombstones.bin")
+    }
+
     pub fn manifest(&self) -> &crate::manifest::CorpusManifest {
         &self.manifest
     }
 
-    pub fn entries(&self) -> &[IndexEntry] {
-        &self.entries
-    }
-
-    /// Look up an entry by chunk ID. O(n) linear scan — fine for small result
-    /// sets (50-100 post-RRF).
-    pub fn entry_by_id(&self, id: u64) -> Option<&IndexEntry> {
-        self.entries.iter().find(|e| e.id == id)
-    }
-
     pub fn replace_manifest(&mut self, manifest: crate::manifest::CorpusManifest) {
         self.manifest = manifest;
+    }
+
+    /// Mark IDs as deleted without rebuilding the graph.
+    pub fn tombstone(&mut self, ids: &[u64]) {
+        for &id in ids {
+            self.tombstones.insert(id);
+        }
+    }
+
+    /// Remove all tombstoned entries and rebuild the graph.
+    pub fn compact(&mut self) {
+        if self.tombstones.is_empty() {
+            return;
+        }
+        self.entries.retain(|e| !self.tombstones.contains(&e.id));
+        self.tombstones.clear();
+        self.manifest.chunk_count = self.live_count();
+        self.rebuild_graph();
+    }
+
+    /// Number of tombstoned (logically deleted) entries.
+    pub fn tombstone_count(&self) -> usize {
+        self.tombstones.len()
+    }
+
+    /// Number of live (non-tombstoned) entries.
+    pub fn live_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| !self.tombstones.contains(&e.id))
+            .count()
     }
 
     /// Remove all entries whose `id` is in `ids` and rebuild the graph.
@@ -105,7 +134,7 @@ impl HnswIndex {
         if ids.is_empty() {
             return;
         }
-        let set: std::collections::HashSet<u64> = ids.iter().copied().collect();
+        let set: HashSet<u64> = ids.iter().copied().collect();
         self.entries.retain(|e| !set.contains(&e.id));
         self.manifest.chunk_count = self.entries.len();
         self.rebuild_graph();
@@ -121,7 +150,7 @@ impl HnswIndex {
 
         let manifest: crate::manifest::CorpusManifest = serde_json::from_slice(&manifest_bytes)?;
 
-        if manifest.version != 4 {
+        if manifest.version != 5 {
             return Err(IndexError::UnsupportedSchema {
                 got: manifest.version,
             });
@@ -162,7 +191,13 @@ impl HnswIndex {
             })?;
 
         let graph: HnswMap<VectorPoint, usize> = bincode::deserialize(&graph_bytes)?;
-        let entries: Vec<IndexEntry> = bincode::deserialize(&entries_bytes)?;
+        let entries: Vec<VectorEntry> = bincode::deserialize(&entries_bytes)?;
+
+        // tombstones.bin is optional — absent on fresh indexes with no deletes
+        let tombstones: HashSet<u64> = match std::fs::read(Self::tombstones_path(dir)) {
+            Ok(bytes) => bincode::deserialize(&bytes)?,
+            Err(_) => HashSet::new(),
+        };
 
         if manifest.identity.dim == 0 {
             return Err(IndexError::CorruptCorpus {
@@ -184,13 +219,14 @@ impl HnswIndex {
             dim,
             manifest,
             entries,
+            tombstones,
             graph,
         })
     }
 }
 
 impl crate::VectorIndex for HnswIndex {
-    fn add(&mut self, entries: Vec<IndexEntry>) -> IndexResult<()> {
+    fn add(&mut self, entries: Vec<VectorEntry>) -> IndexResult<()> {
         for entry in &entries {
             self.validate_vector(&entry.vector)?;
         }
@@ -203,7 +239,7 @@ impl crate::VectorIndex for HnswIndex {
         Ok(())
     }
 
-    fn query(&self, vector: &[f32], top_k: usize) -> IndexResult<Vec<SearchHit>> {
+    fn query(&self, vector: &[f32], top_k: usize) -> IndexResult<Vec<VectorHit>> {
         self.validate_vector(vector)?;
         if top_k == 0 || self.entries.is_empty() {
             return Ok(Vec::new());
@@ -216,20 +252,31 @@ impl crate::VectorIndex for HnswIndex {
         let mut search = Search::default();
         let mut hits = Vec::new();
 
-        for result in self.graph.search(&query, &mut search).take(top_k) {
+        // Over-fetch to account for tombstoned results being filtered out
+        let fetch_k = top_k + self.tombstones.len();
+
+        for result in self.graph.search(&query, &mut search).take(fetch_k) {
             let entry = self
                 .entry_by_index(*result.value)
                 .ok_or_else(|| IndexError::CorruptCorpus {
                     message: format!("missing entry at index {}", result.value),
-                })?
-                .clone();
+                })?;
+            if self.tombstones.contains(&entry.id) {
+                continue;
+            }
             let score = cosine_similarity(&normalized_query, &result.point.vector);
-            hits.push(SearchHit { entry, score });
+            hits.push(VectorHit {
+                id: entry.id,
+                score,
+            });
+            if hits.len() == top_k {
+                break;
+            }
         }
 
         hits.sort_by(
             |a, b| match b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal) {
-                Ordering::Equal => a.entry.id.cmp(&b.entry.id),
+                Ordering::Equal => a.id.cmp(&b.id),
                 ord => ord,
             },
         );
@@ -244,6 +291,10 @@ impl crate::VectorIndex for HnswIndex {
         )?;
         std::fs::write(Self::index_path(dir), bincode::serialize(&self.graph)?)?;
         std::fs::write(Self::entries_path(dir), bincode::serialize(&self.entries)?)?;
+        std::fs::write(
+            Self::tombstones_path(dir),
+            bincode::serialize(&self.tombstones)?,
+        )?;
         Ok(())
     }
 
@@ -294,8 +345,7 @@ fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IndexEntry, VectorIndex};
-    use fastrag_core::ElementKind;
+    use crate::{VectorEntry, VectorIndex};
     use fastrag_embed::{
         CANARY_TEXT, Canary, DynEmbedderTrait, Embedder, EmbedderIdentity, PassageText,
         PrefixScheme, test_utils::MockEmbedder,
@@ -334,20 +384,8 @@ mod tests {
         )
     }
 
-    fn entry(id: u64, vector: Vec<f32>, text: &str) -> IndexEntry {
-        IndexEntry {
-            id,
-            vector,
-            chunk_text: text.to_string(),
-            source_path: PathBuf::from(format!("/tmp/{id}.txt")),
-            chunk_index: id as usize,
-            section: Some("section".to_string()),
-            element_kinds: vec![ElementKind::Paragraph],
-            pages: vec![1],
-            language: Some("en".to_string()),
-            metadata: std::collections::BTreeMap::new(),
-            display_text: None,
-        }
+    fn entry(id: u64, vector: Vec<f32>) -> VectorEntry {
+        VectorEntry { id, vector }
     }
 
     #[test]
@@ -361,7 +399,6 @@ mod tests {
                         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "a",
                 ),
                 entry(
                     2,
@@ -369,7 +406,6 @@ mod tests {
                         0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "b",
                 ),
                 entry(
                     3,
@@ -377,7 +413,6 @@ mod tests {
                         0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "c",
                 ),
             ])
             .unwrap();
@@ -390,7 +425,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].entry.id, 1);
+        assert_eq!(hits[0].id, 1);
         assert!((hits[0].score - 1.0).abs() < 1e-6);
     }
 
@@ -405,7 +440,6 @@ mod tests {
                         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "a",
                 ),
                 entry(
                     2,
@@ -413,7 +447,6 @@ mod tests {
                         0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "b",
                 ),
                 entry(
                     3,
@@ -421,14 +454,13 @@ mod tests {
                         0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "c",
                 ),
             ])
             .unwrap();
 
         index.remove_by_chunk_ids(&[2]);
         assert_eq!(index.len(), 2);
-        let ids: Vec<u64> = index.entries().iter().map(|e| e.id).collect();
+        let ids: Vec<u64> = index.entries.iter().map(|e| e.id).collect();
         assert_eq!(ids, vec![1, 3]);
 
         let hits = index
@@ -439,7 +471,7 @@ mod tests {
                 3,
             )
             .unwrap();
-        assert!(hits.iter().all(|h| h.entry.id != 2));
+        assert!(hits.iter().all(|h| h.id != 2));
     }
 
     #[test]
@@ -453,7 +485,6 @@ mod tests {
                         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "a",
                 ),
                 entry(
                     2,
@@ -461,7 +492,6 @@ mod tests {
                         0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "b",
                 ),
                 entry(
                     3,
@@ -469,7 +499,6 @@ mod tests {
                         0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "c",
                 ),
             ])
             .unwrap();
@@ -482,7 +511,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            hits.iter().map(|h| h.entry.id).collect::<Vec<_>>(),
+            hits.iter().map(|h| h.id).collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
     }
@@ -499,7 +528,6 @@ mod tests {
                         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "a",
                 ),
                 entry(
                     2,
@@ -507,7 +535,6 @@ mod tests {
                         0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "b",
                 ),
             ])
             .unwrap();
@@ -526,49 +553,15 @@ mod tests {
                     1
                 )
                 .unwrap()[0]
-                .entry
                 .id,
             1
         );
     }
 
     #[test]
-    fn metadata_preserved() {
-        let e = MockEmbedder;
-        let mut index = HnswIndex::new(manifest());
-        index
-            .add(vec![entry(
-                1,
-                vec![
-                    1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                ],
-                "a",
-            )])
-            .unwrap();
-        let dir = tempdir().unwrap();
-        index.save(dir.path()).unwrap();
-        let loaded = HnswIndex::load(dir.path(), &e as &dyn DynEmbedderTrait).unwrap();
-        let hit = &loaded
-            .query(
-                &[
-                    1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                ],
-                1,
-            )
-            .unwrap()[0];
-        assert_eq!(hit.entry.source_path, PathBuf::from("/tmp/1.txt"));
-        assert_eq!(hit.entry.chunk_index, 1);
-        assert_eq!(hit.entry.pages, vec![1]);
-        assert_eq!(hit.entry.element_kinds, vec![ElementKind::Paragraph]);
-        assert_eq!(hit.entry.language.as_deref(), Some("en"));
-    }
-
-    #[test]
     fn dimension_mismatch_errors() {
         let mut index = HnswIndex::new(manifest());
-        let err = index
-            .add(vec![entry(1, vec![1.0, 0.0], "bad")])
-            .unwrap_err();
+        let err = index.add(vec![entry(1, vec![1.0, 0.0])]).unwrap_err();
         match err {
             IndexError::DimensionMismatch { expected, got } => {
                 assert_eq!(expected, 16);
@@ -589,7 +582,6 @@ mod tests {
                         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "b",
                 ),
                 entry(
                     1,
@@ -597,7 +589,6 @@ mod tests {
                         1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         0.0,
                     ],
-                    "a",
                 ),
             ])
             .unwrap();
@@ -611,9 +602,126 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hits.len(), 2);
-        assert_eq!(hits[0].entry.id, 1);
-        assert_eq!(hits[1].entry.id, 2);
+        assert_eq!(hits[0].id, 1);
+        assert_eq!(hits[1].id, 2);
         assert!((hits[0].score - hits[1].score).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tombstone_filters_results_without_rebuild() {
+        let mut index = HnswIndex::new(manifest());
+        index
+            .add(vec![
+                entry(
+                    1,
+                    vec![
+                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+                entry(
+                    2,
+                    vec![
+                        0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+                entry(
+                    3,
+                    vec![
+                        0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+            ])
+            .unwrap();
+
+        index.tombstone(&[1]);
+        assert_eq!(index.tombstone_count(), 1);
+        assert_eq!(index.live_count(), 2);
+
+        let hits = index
+            .query(
+                &[
+                    1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                ],
+                3,
+            )
+            .unwrap();
+        assert!(hits.iter().all(|h| h.id != 1), "tombstoned id 1 must not appear");
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn compact_removes_tombstones_and_rebuilds() {
+        let mut index = HnswIndex::new(manifest());
+        index
+            .add(vec![
+                entry(
+                    1,
+                    vec![
+                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+                entry(
+                    2,
+                    vec![
+                        0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+            ])
+            .unwrap();
+
+        index.tombstone(&[1]);
+        index.compact();
+
+        assert_eq!(index.tombstone_count(), 0);
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.entries[0].id, 2);
+    }
+
+    #[test]
+    fn tombstones_persist_across_save_load() {
+        let e = MockEmbedder;
+        let mut index = HnswIndex::new(manifest());
+        index
+            .add(vec![
+                entry(
+                    1,
+                    vec![
+                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+                entry(
+                    2,
+                    vec![
+                        0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0,
+                    ],
+                ),
+            ])
+            .unwrap();
+        index.tombstone(&[1]);
+
+        let dir = tempdir().unwrap();
+        index.save(dir.path()).unwrap();
+
+        let loaded = HnswIndex::load(dir.path(), &e as &dyn DynEmbedderTrait).unwrap();
+        assert_eq!(loaded.tombstone_count(), 1);
+        assert_eq!(loaded.live_count(), 1);
+
+        let hits = loaded
+            .query(
+                &[
+                    1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                ],
+                2,
+            )
+            .unwrap();
+        assert!(hits.iter().all(|h| h.id != 1));
     }
 }
 

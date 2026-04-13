@@ -84,7 +84,7 @@ impl CorpusManifest {
         chunking_strategy: ManifestChunkingStrategy,
     ) -> Self {
         Self {
-            version: 4,
+            version: 5,
             identity,
             canary,
             created_at_unix_seconds,
@@ -98,7 +98,7 @@ impl CorpusManifest {
 }
 
 #[cfg(test)]
-mod v4_tests {
+mod v5_tests {
     use super::*;
     use fastrag_embed::{Canary, EmbedderIdentity, PrefixScheme};
 
@@ -118,7 +118,7 @@ mod v4_tests {
     }
 
     #[test]
-    fn v4_roundtrip() {
+    fn v5_roundtrip() {
         let m = CorpusManifest::new(
             sample_identity(),
             sample_canary(),
@@ -128,7 +128,7 @@ mod v4_tests {
                 overlap: 0,
             },
         );
-        assert_eq!(m.version, 4);
+        assert_eq!(m.version, 5);
         assert_eq!(m.identity.dim, 16);
         assert_eq!(m.canary.vector.len(), 16);
         assert!(m.contextualizer.is_none());
@@ -138,7 +138,7 @@ mod v4_tests {
     }
 
     #[test]
-    fn v4_with_contextualizer_roundtrip() {
+    fn v5_with_contextualizer_roundtrip() {
         let mut m = CorpusManifest::new(
             sample_identity(),
             sample_canary(),
@@ -160,7 +160,7 @@ mod v4_tests {
     }
 
     #[test]
-    fn v4_without_contextualizer_field_deserializes() {
+    fn v5_without_contextualizer_field_deserializes() {
         // An older v4-writer that didn't emit `contextualizer` at all must
         // still load — the field is optional with serde default.
         let m_ref = CorpusManifest::new(
@@ -178,7 +178,7 @@ mod v4_tests {
         value.as_object_mut().unwrap().remove("contextualizer");
         let json = serde_json::to_string(&value).unwrap();
         let m: CorpusManifest = serde_json::from_str(&json).unwrap();
-        assert_eq!(m.version, 4);
+        assert_eq!(m.version, 5);
         assert!(m.contextualizer.is_none());
     }
 
@@ -193,6 +193,6 @@ mod v4_tests {
             "chunking_strategy": {"kind":"basic","max_characters":100,"overlap":0}
         }"#;
         let err = serde_json::from_str::<CorpusManifest>(v1);
-        assert!(err.is_err(), "v1 manifests must not deserialize as v4");
+        assert!(err.is_err(), "v1 manifests must not deserialize as v5");
     }
 }
