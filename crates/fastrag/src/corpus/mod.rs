@@ -17,6 +17,7 @@ use fastrag_embed::DynEmbedderTrait;
 pub mod incremental;
 pub mod registry;
 pub use registry::CorpusRegistry;
+pub mod hybrid;
 
 /// Options for the filter-aware query path.
 #[derive(Debug, Clone, Default)]

@@ -31,6 +31,7 @@ fastrag-cwe = { workspace = true }
 fastrag-store = { workspace = true, optional = true }
 blake3 = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
+humantime = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 whatlang = { version = "0.16", optional = true }
 rayon = { workspace = true, optional = true }
@@ -66,7 +67,7 @@ language-detection = ["fastrag-core/language-detection"]
 embedding = ["dep:fastrag-embed"]
 legacy-candle = ["embedding", "fastrag-embed/legacy-candle"]
 index = ["dep:fastrag-index"]
-retrieval = ["embedding", "index", "store", "dep:rayon"]
+retrieval = ["embedding", "index", "store", "dep:rayon", "dep:humantime"]
 rerank = ["retrieval", "dep:fastrag-rerank"]
 rerank-llama = ["rerank", "fastrag-rerank/llama-cpp"]
 contextual = ["retrieval", "dep:fastrag-context", "dep:blake3"]
