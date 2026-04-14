@@ -325,3 +325,59 @@ mod apply_decay_tests {
         assert_eq!(out.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 }
+
+/// Extract a `NaiveDate` for one row of metadata by locating the named field.
+/// Returns `None` when the field is absent or the value isn't a `Date`.
+pub fn extract_date(
+    fields: &[(String, fastrag_store::schema::TypedValue)],
+    date_field: &str,
+) -> Option<NaiveDate> {
+    fields.iter().find_map(|(k, v)| {
+        if k == date_field {
+            match v {
+                fastrag_store::schema::TypedValue::Date(d) => Some(*d),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(test)]
+mod extract_date_tests {
+    use super::*;
+    use fastrag_store::schema::TypedValue;
+
+    fn field(name: &str, v: TypedValue) -> (String, TypedValue) {
+        (name.to_string(), v)
+    }
+
+    #[test]
+    fn returns_date_when_field_present() {
+        let rows = vec![
+            field("other", TypedValue::String("x".into())),
+            field(
+                "published_date",
+                TypedValue::Date(NaiveDate::from_ymd_opt(2024, 6, 1).unwrap()),
+            ),
+        ];
+        let d = extract_date(&rows, "published_date");
+        assert_eq!(d, NaiveDate::from_ymd_opt(2024, 6, 1));
+    }
+
+    #[test]
+    fn returns_none_when_field_missing() {
+        let rows = vec![field("other", TypedValue::String("x".into()))];
+        assert_eq!(extract_date(&rows, "published_date"), None);
+    }
+
+    #[test]
+    fn returns_none_when_field_wrong_type() {
+        let rows = vec![field(
+            "published_date",
+            TypedValue::String("2024-06-01".into()),
+        )];
+        assert_eq!(extract_date(&rows, "published_date"), None);
+    }
+}
