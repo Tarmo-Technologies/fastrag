@@ -12,7 +12,7 @@ use std::time::Duration;
 use chrono::{DateTime, NaiveDate, Utc};
 
 use super::CorpusError;
-use fastrag_index::fusion::{rrf_fuse, ScoredId};
+use fastrag_index::fusion::{ScoredId, rrf_fuse};
 
 #[derive(Debug, Clone)]
 pub struct HybridOpts {
