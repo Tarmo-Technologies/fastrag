@@ -122,6 +122,46 @@ pub struct SearchCorpusParams {
         description = "Reranker: 'off' (default) or 'onnx'/'llama-cpp' to apply cross-encoder reranking"
     )]
     pub rerank: Option<String>,
+
+    /// Enable hybrid BM25 + dense retrieval (RRF fused).
+    #[schemars(description = "Enable hybrid BM25 + dense retrieval fused via RRF")]
+    #[serde(default)]
+    pub hybrid: Option<bool>,
+
+    /// Reciprocal Rank Fusion k constant (default 60).
+    #[schemars(description = "RRF k constant (default 60)")]
+    #[serde(default)]
+    pub rrf_k: Option<u32>,
+
+    /// BM25 + dense candidate overfetch factor (default 4).
+    #[schemars(description = "Candidate overfetch factor per source (default 4)")]
+    #[serde(default)]
+    pub rrf_overfetch: Option<usize>,
+
+    /// Date metadata field for temporal decay (e.g. "published_date").
+    #[schemars(description = "Metadata field name carrying a Date value")]
+    #[serde(default)]
+    pub time_decay_field: Option<String>,
+
+    /// Decay half-life as a humantime string (e.g. "30d", "1y"). Default "30d".
+    #[schemars(description = "Decay half-life (humantime: 7d, 30d, 1y)")]
+    #[serde(default)]
+    pub time_decay_halflife: Option<String>,
+
+    /// Minimum weight floor for very old docs (default 0.3).
+    #[schemars(description = "Alpha floor in [0,1] for very old docs (default 0.3)")]
+    #[serde(default)]
+    pub time_decay_weight: Option<f32>,
+
+    /// Prior score for dateless docs (default 0.5).
+    #[schemars(description = "Neutral prior in [0,1] for dateless docs (default 0.5)")]
+    #[serde(default)]
+    pub time_decay_dateless_prior: Option<f32>,
+
+    /// Blend mode: "multiplicative" (default) or "additive".
+    #[schemars(description = "Blend mode: 'multiplicative' (default) or 'additive'")]
+    #[serde(default)]
+    pub time_decay_blend: Option<String>,
 }
 
 pub struct FastRagMcpServer {
@@ -309,13 +349,33 @@ impl FastRagMcpServer {
                 None => None,
             };
 
+            let hybrid_opts = fastrag::corpus::hybrid::build_hybrid_opts_from_parts(
+                params.hybrid.unwrap_or(false),
+                params.rrf_k.unwrap_or(60),
+                params.rrf_overfetch.unwrap_or(4),
+                params.time_decay_field.clone(),
+                params.time_decay_halflife.as_deref().unwrap_or("30d"),
+                params.time_decay_weight.unwrap_or(0.3),
+                params.time_decay_dateless_prior.unwrap_or(0.5),
+                params
+                    .time_decay_blend
+                    .as_deref()
+                    .unwrap_or("multiplicative"),
+            )?;
+
+            let query_opts = fastrag::corpus::QueryOpts {
+                cwe_expand: false,
+                hybrid: hybrid_opts,
+            };
+
             let hits = tokio::task::spawn_blocking(move || {
-                ops::query_corpus_with_filter(
+                ops::query_corpus_with_filter_opts(
                     &corpus_path,
                     &query,
                     top_k,
                     embedder.as_ref(),
                     filter_expr.as_ref(),
+                    &query_opts,
                     &mut fastrag::corpus::LatencyBreakdown::default(),
                     0,
                 )
@@ -458,6 +518,37 @@ mod tests {
         assert!(names.contains(&"PDF"));
         assert!(names.contains(&"HTML"));
         assert!(names.contains(&"Text"));
+    }
+
+    #[test]
+    fn search_corpus_params_accepts_temporal_fields() {
+        let json = serde_json::json!({
+            "query": "q",
+            "corpus_path": "/tmp/corpus",
+            "hybrid": true,
+            "rrf_k": 60,
+            "time_decay_field": "published_date",
+            "time_decay_halflife": "14d",
+            "time_decay_blend": "additive"
+        });
+        let params: SearchCorpusParams = serde_json::from_value(json).unwrap();
+        assert_eq!(params.hybrid, Some(true));
+        assert_eq!(params.rrf_k, Some(60));
+        assert_eq!(params.time_decay_field.as_deref(), Some("published_date"));
+        assert_eq!(params.time_decay_halflife.as_deref(), Some("14d"));
+        assert_eq!(params.time_decay_blend.as_deref(), Some("additive"));
+    }
+
+    #[test]
+    fn search_corpus_params_minimal_still_works() {
+        let json = serde_json::json!({
+            "query": "q",
+            "corpus_path": "/tmp/corpus"
+        });
+        let params: SearchCorpusParams = serde_json::from_value(json).unwrap();
+        assert_eq!(params.query, "q");
+        assert!(params.hybrid.is_none());
+        assert!(params.time_decay_field.is_none());
     }
 
     #[test]

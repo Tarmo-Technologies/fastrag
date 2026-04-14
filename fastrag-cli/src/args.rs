@@ -72,43 +72,26 @@ pub fn build_hybrid_opts(
     time_decay_dateless_prior: f32,
     time_decay_blend: TimeDecayBlendArg,
 ) -> Result<fastrag::corpus::hybrid::HybridOpts, String> {
-    use fastrag::corpus::hybrid::{BlendMode, HybridOpts, TemporalOpts};
-
-    let has_decay_params_without_field = time_decay_field.is_none()
-        && (time_decay_halflife != "30d"
-            || time_decay_weight != 0.3
-            || time_decay_dateless_prior != 0.5);
-    if has_decay_params_without_field {
-        return Err(
-            "--time-decay-halflife / -weight / -dateless-prior require --time-decay-field"
-                .to_string(),
-        );
-    }
-
-    let temporal = if let Some(field) = time_decay_field {
-        let halflife = humantime::parse_duration(time_decay_halflife)
-            .map_err(|e| format!("--time-decay-halflife: {e}"))?;
-        Some(TemporalOpts {
-            date_field: field,
-            halflife,
-            weight_floor: time_decay_weight,
-            dateless_prior: time_decay_dateless_prior,
-            blend: match time_decay_blend {
-                TimeDecayBlendArg::Multiplicative => BlendMode::Multiplicative,
-                TimeDecayBlendArg::Additive => BlendMode::Additive,
-            },
-            now: chrono::Utc::now(),
-        })
-    } else {
-        None
+    let blend_str = match time_decay_blend {
+        TimeDecayBlendArg::Multiplicative => "multiplicative",
+        TimeDecayBlendArg::Additive => "additive",
     };
-
-    let enabled = hybrid || temporal.is_some();
-    Ok(HybridOpts {
-        enabled,
+    fastrag::corpus::hybrid::build_hybrid_opts_from_parts(
+        hybrid,
         rrf_k,
-        overfetch_factor: rrf_overfetch,
-        temporal,
+        rrf_overfetch,
+        time_decay_field,
+        time_decay_halflife,
+        time_decay_weight,
+        time_decay_dateless_prior,
+        blend_str,
+    )
+    .map_err(|e| {
+        // Remap generic field names to CLI flag names for better UX.
+        e.replace("time_decay_halflife", "--time-decay-halflife")
+            .replace("time_decay_weight", "--time-decay-weight")
+            .replace("time_decay_dateless_prior", "--time-decay-dateless-prior")
+            .replace("time_decay_field", "--time-decay-field")
     })
 }
 

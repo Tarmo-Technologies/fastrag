@@ -1143,43 +1143,20 @@ async fn query(
     };
 
     // Validate + build hybrid opts. Return 400 on bad inputs.
-    let hybrid_opts = {
-        use crate::args::{TimeDecayBlendArg, build_hybrid_opts};
-
-        let blend_str = params
+    let hybrid_opts = fastrag::corpus::hybrid::build_hybrid_opts_from_parts(
+        params.hybrid.unwrap_or(false),
+        params.rrf_k.unwrap_or(60),
+        params.rrf_overfetch.unwrap_or(4),
+        params.time_decay_field.clone(),
+        params.time_decay_halflife.as_deref().unwrap_or("30d"),
+        params.time_decay_weight.unwrap_or(0.3),
+        params.time_decay_dateless_prior.unwrap_or(0.5),
+        params
             .time_decay_blend
             .as_deref()
-            .unwrap_or("multiplicative");
-        let blend = match blend_str {
-            "multiplicative" => TimeDecayBlendArg::Multiplicative,
-            "additive" => TimeDecayBlendArg::Additive,
-            other => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!(
-                        "time_decay_blend: expected 'multiplicative' or 'additive', got {other:?}"
-                    ),
-                )
-                    .into_response());
-            }
-        };
-
-        match build_hybrid_opts(
-            params.hybrid.unwrap_or(false),
-            params.rrf_k.unwrap_or(60),
-            params.rrf_overfetch.unwrap_or(4),
-            params.time_decay_field.clone(),
-            params.time_decay_halflife.as_deref().unwrap_or("30d"),
-            params.time_decay_weight.unwrap_or(0.3),
-            params.time_decay_dateless_prior.unwrap_or(0.5),
-            blend,
-        ) {
-            Ok(opts) => opts,
-            Err(e) => {
-                return Err((StatusCode::BAD_REQUEST, e).into_response());
-            }
-        }
-    };
+            .unwrap_or("multiplicative"),
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e).into_response())?;
 
     let corpus_name = params.corpus.as_deref().unwrap_or("default");
     let lock = get_or_create_lock(&state.ingest_locks, corpus_name);

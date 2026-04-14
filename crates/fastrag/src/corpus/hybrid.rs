@@ -382,6 +382,141 @@ mod extract_date_tests {
     }
 }
 
+/// Build [`HybridOpts`] from flat flag values. Shared entry point for CLI, HTTP,
+/// and MCP surfaces. `blend_str` must be either `"multiplicative"` or `"additive"`.
+/// `halflife_str` is parsed with `humantime::parse_duration` (e.g. `"30d"`, `"1y"`).
+/// Returns a user-facing `String` error on validation failure.
+#[allow(clippy::too_many_arguments)]
+pub fn build_hybrid_opts_from_parts(
+    hybrid: bool,
+    rrf_k: u32,
+    rrf_overfetch: usize,
+    time_decay_field: Option<String>,
+    time_decay_halflife: &str,
+    time_decay_weight: f32,
+    time_decay_dateless_prior: f32,
+    time_decay_blend: &str,
+) -> Result<HybridOpts, String> {
+    // Reject decay-knob changes without a date field.
+    let has_decay_params_without_field = time_decay_field.is_none()
+        && (time_decay_halflife != "30d"
+            || time_decay_weight != 0.3
+            || time_decay_dateless_prior != 0.5);
+    if has_decay_params_without_field {
+        return Err(
+            "time_decay_halflife / _weight / _dateless_prior require time_decay_field".to_string(),
+        );
+    }
+
+    // Validate blend string.
+    let blend = match time_decay_blend {
+        "multiplicative" => BlendMode::Multiplicative,
+        "additive" => BlendMode::Additive,
+        other => {
+            return Err(format!(
+                "time_decay_blend: expected 'multiplicative' or 'additive', got {other:?}"
+            ));
+        }
+    };
+
+    // Parse halflife + build TemporalOpts only if a date field was supplied.
+    let temporal = if let Some(field) = time_decay_field {
+        let halflife = humantime::parse_duration(time_decay_halflife)
+            .map_err(|e| format!("time_decay_halflife: {e}"))?;
+        Some(TemporalOpts {
+            date_field: field,
+            halflife,
+            weight_floor: time_decay_weight,
+            dateless_prior: time_decay_dateless_prior,
+            blend,
+            now: chrono::Utc::now(),
+        })
+    } else {
+        None
+    };
+
+    let enabled = hybrid || temporal.is_some();
+    Ok(HybridOpts {
+        enabled,
+        rrf_k,
+        overfetch_factor: rrf_overfetch,
+        temporal,
+    })
+}
+
+#[cfg(test)]
+mod build_hybrid_opts_tests {
+    use super::*;
+
+    #[test]
+    fn build_hybrid_opts_defaults_dense_only() {
+        let opts =
+            build_hybrid_opts_from_parts(false, 60, 4, None, "30d", 0.3, 0.5, "multiplicative")
+                .unwrap();
+        assert!(
+            !opts.enabled,
+            "enabled must be false for dense-only defaults"
+        );
+        assert!(opts.temporal.is_none(), "temporal must be None");
+        assert_eq!(opts.rrf_k, 60);
+        assert_eq!(opts.overfetch_factor, 4);
+    }
+
+    #[test]
+    fn build_hybrid_opts_bad_blend_errors() {
+        let result = build_hybrid_opts_from_parts(false, 60, 4, None, "30d", 0.3, 0.5, "bogus");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("expected 'multiplicative' or 'additive'"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn build_hybrid_opts_halflife_without_field_errors() {
+        let result =
+            build_hybrid_opts_from_parts(false, 60, 4, None, "7d", 0.3, 0.5, "multiplicative");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("require time_decay_field"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn build_hybrid_opts_full_additive() {
+        let opts = build_hybrid_opts_from_parts(
+            true,
+            60,
+            4,
+            Some("published_date".to_string()),
+            "14d",
+            0.4,
+            0.6,
+            "additive",
+        )
+        .unwrap();
+        assert!(opts.enabled, "enabled must be true when hybrid=true");
+        let temporal = opts.temporal.expect("temporal must be Some");
+        assert_eq!(temporal.blend, BlendMode::Additive);
+        assert_eq!(
+            temporal.halflife,
+            std::time::Duration::from_secs(14 * 86400)
+        );
+        assert_eq!(temporal.date_field, "published_date");
+        assert!(
+            (temporal.weight_floor - 0.4).abs() < 1e-6,
+            "weight_floor mismatch"
+        );
+        assert!(
+            (temporal.dateless_prior - 0.6).abs() < 1e-6,
+            "dateless_prior mismatch"
+        );
+    }
+}
+
 /// BM25 + dense candidate fetch, unweighted RRF, optional post-fusion decay.
 ///
 /// Fetches `overfetch_factor * top_k` from each retriever (minimum `top_k`),
