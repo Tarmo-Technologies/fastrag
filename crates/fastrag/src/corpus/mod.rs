@@ -18,6 +18,15 @@ pub mod incremental;
 pub mod registry;
 pub use registry::CorpusRegistry;
 
+/// Options for the filter-aware query path.
+#[derive(Debug, Clone, Default)]
+pub struct QueryOpts {
+    /// When `true` and the corpus manifest has a `cwe_field`, expand CWE
+    /// predicates via the embedded taxonomy before filter evaluation,
+    /// and synthesise an In filter from any CWE ids in the free-text query.
+    pub cwe_expand: bool,
+}
+
 /// Options that opt a single `index_path_with_metadata` run into Contextual
 /// Retrieval. Carries the contextualizer, a mutable borrow on the cache, and
 /// the `strict` flag. Only constructed at the CLI / test layer — the core
@@ -920,6 +929,28 @@ pub fn query_corpus_with_filter(
     breakdown: &mut LatencyBreakdown,
     snippet_len: usize,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
+    query_corpus_with_filter_opts(
+        corpus_dir,
+        query,
+        top_k,
+        embedder,
+        filter,
+        &QueryOpts::default(),
+        breakdown,
+        snippet_len,
+    )
+}
+
+pub fn query_corpus_with_filter_opts(
+    corpus_dir: &Path,
+    query: &str,
+    top_k: usize,
+    embedder: &dyn DynEmbedderTrait,
+    filter: Option<&crate::filter::FilterExpr>,
+    opts: &QueryOpts,
+    breakdown: &mut LatencyBreakdown,
+    snippet_len: usize,
+) -> Result<Vec<SearchHitDto>, CorpusError> {
     use fastrag_embed::QueryText;
     use std::time::Instant;
 
@@ -949,6 +980,31 @@ pub fn query_corpus_with_filter(
 
     // ── Store path ───────────────────────────────────────────────────────
     let store = fastrag_store::Store::open(corpus_dir, embedder)?;
+
+    // Maybe rewrite/synthesise a filter for CWE hierarchy expansion.
+    let cwe_field_opt = store.manifest().cwe_field.clone();
+    let effective_filter: Option<crate::filter::FilterExpr> =
+        match (filter, opts.cwe_expand, cwe_field_opt.as_deref()) {
+            (Some(f), true, Some(cwe_field)) => {
+                let tx = fastrag_cwe::data::embedded();
+                let rewriter = crate::filter::CweRewriter::new(tx, cwe_field);
+                let rewritten = rewriter.rewrite(f.clone());
+                match synthesize_cwe_filter_from_query(query, cwe_field) {
+                    Some(extra) => Some(crate::filter::FilterExpr::And(vec![rewritten, extra])),
+                    None => Some(rewritten),
+                }
+            }
+            (Some(f), true, None) => {
+                eprintln!(
+                    "warn: --cwe-expand set but corpus has no cwe_field; ignoring"
+                );
+                Some(f.clone())
+            }
+            (Some(f), false, _) => Some(f.clone()),
+            (None, true, Some(cwe_field)) => synthesize_cwe_filter_from_query(query, cwe_field),
+            (None, _, _) => None,
+        };
+    let filter = effective_filter.as_ref();
 
     // Unfiltered: query Store for top_k dense hits and return.
     if filter.is_none() {
@@ -1010,6 +1066,44 @@ pub fn query_corpus_with_filter(
     // Unreachable (loop always returns on last factor) but satisfy compiler.
     breakdown.finalize();
     Ok(vec![])
+}
+
+/// Extract CWE ids from the free-text query and build an In filter on
+/// `cwe_field` with the taxonomy-expanded descendants. Returns None when the
+/// query has no CWE mentions.
+fn synthesize_cwe_filter_from_query(
+    query: &str,
+    cwe_field: &str,
+) -> Option<crate::filter::FilterExpr> {
+    use fastrag_index::identifiers::{SecurityId, extract_security_identifiers};
+    use fastrag_store::schema::TypedValue;
+
+    let ids: Vec<u32> = extract_security_identifiers(query)
+        .into_iter()
+        .filter_map(|id| match id {
+            SecurityId::Cwe(s) => s.strip_prefix("CWE-").and_then(|n| n.parse::<u32>().ok()),
+            _ => None,
+        })
+        .collect();
+    if ids.is_empty() {
+        return None;
+    }
+
+    let tx = fastrag_cwe::data::embedded();
+    let mut merged: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for id in ids {
+        for d in tx.expand(id) {
+            merged.insert(d);
+        }
+    }
+    let values: Vec<TypedValue> = merged
+        .into_iter()
+        .map(|n| TypedValue::Numeric(n as f64))
+        .collect();
+    Some(crate::filter::FilterExpr::In {
+        field: cwe_field.to_string(),
+        values,
+    })
 }
 
 /// Convert a slice of `(id, score)` pairs into `SearchHitDto`s via the Store.
