@@ -381,3 +381,177 @@ mod extract_date_tests {
         assert_eq!(extract_date(&rows, "published_date"), None);
     }
 }
+
+/// BM25 + dense candidate fetch, unweighted RRF, optional post-fusion decay.
+///
+/// Fetches `overfetch_factor * top_k` from each retriever (minimum `top_k`),
+/// fuses via RRF(k=rrf_k), optionally applies temporal decay, sorts, truncates
+/// to `top_k`.
+///
+/// Timing: populates `breakdown.bm25_us`, `breakdown.hnsw_us`, `breakdown.fuse_us`.
+/// Caller is responsible for `embed_us` and `breakdown.finalize()`.
+#[cfg(feature = "store")]
+#[allow(clippy::too_many_arguments)]
+pub fn query_hybrid(
+    store: &fastrag_store::Store,
+    query: &str,
+    vector: &[f32],
+    top_k: usize,
+    opts: &HybridOpts,
+    breakdown: &mut crate::corpus::LatencyBreakdown,
+) -> Result<Vec<ScoredId>, CorpusError> {
+    use std::time::Instant;
+
+    let fetch_count = top_k
+        .saturating_mul(opts.overfetch_factor.max(1))
+        .max(top_k);
+
+    let t = Instant::now();
+    let bm25 = store.query_bm25(query, fetch_count)?;
+    breakdown.bm25_us = t.elapsed().as_micros() as u64;
+
+    let t = Instant::now();
+    let dense = store.query_dense(vector, fetch_count)?;
+    breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+
+    let bm25_sids: Vec<ScoredId> = bm25
+        .iter()
+        .map(|(id, score)| ScoredId {
+            id: *id,
+            score: *score,
+        })
+        .collect();
+    let dense_sids: Vec<ScoredId> = dense
+        .iter()
+        .map(|(id, score)| ScoredId {
+            id: *id,
+            score: *score,
+        })
+        .collect();
+
+    let t = Instant::now();
+    let mut fused = rrf_fuse(&[&bm25_sids, &dense_sids], opts.rrf_k);
+    breakdown.fuse_us = t.elapsed().as_micros() as u64;
+
+    if let Some(temp) = &opts.temporal {
+        let ids: Vec<u64> = fused.iter().map(|s| s.id).collect();
+        let rows = store.fetch_metadata(&ids)?;
+        let row_map: std::collections::HashMap<
+            u64,
+            Vec<(String, fastrag_store::schema::TypedValue)>,
+        > = rows.into_iter().collect();
+        let dates: Vec<Option<NaiveDate>> = fused
+            .iter()
+            .map(|s| {
+                row_map
+                    .get(&s.id)
+                    .and_then(|f| extract_date(f, &temp.date_field))
+            })
+            .collect();
+        fused = apply_decay(&fused, &dates, temp);
+    }
+
+    fused.truncate(top_k);
+    Ok(fused)
+}
+
+#[cfg(all(test, feature = "store"))]
+mod query_hybrid_tests {
+    use super::*;
+    use crate::corpus::LatencyBreakdown;
+    use fastrag_embed::{Canary, EmbedderIdentity, PrefixScheme};
+    use fastrag_index::{CorpusManifest, ManifestChunkingStrategy};
+    use fastrag_store::schema::DynamicSchema;
+    use fastrag_store::{ChunkRecord, Store};
+    use tempfile::TempDir;
+
+    fn test_manifest() -> CorpusManifest {
+        CorpusManifest::new(
+            EmbedderIdentity {
+                model_id: "test/stub-3d-v1".into(),
+                dim: 3,
+                prefix_scheme_hash: PrefixScheme::NONE.hash(),
+            },
+            Canary {
+                text_version: 1,
+                vector: vec![1.0, 0.0, 0.0],
+            },
+            0,
+            ManifestChunkingStrategy::Basic {
+                max_characters: 1000,
+                overlap: 0,
+            },
+        )
+    }
+
+    fn chunk(id: u64, text: &str, vector: Vec<f32>) -> ChunkRecord {
+        ChunkRecord {
+            id,
+            external_id: format!("ext-{id}"),
+            content_hash: format!("hash-{id}"),
+            chunk_index: 0,
+            source_path: format!("/src/{id}.md"),
+            source_json: None,
+            chunk_text: text.to_string(),
+            vector,
+            user_fields: vec![],
+        }
+    }
+
+    fn fixture() -> (TempDir, Store) {
+        let dir = TempDir::new().unwrap();
+        let mut store = Store::create(dir.path(), test_manifest(), DynamicSchema::new()).unwrap();
+        store
+            .add_records(vec![
+                chunk(1, "alpha beta gamma", vec![1.0, 0.0, 0.0]),
+                chunk(2, "delta epsilon zeta", vec![0.0, 1.0, 0.0]),
+                chunk(3, "alpha delta eta", vec![0.7, 0.7, 0.0]),
+            ])
+            .unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn hybrid_reorders_vs_dense_only() {
+        let (_dir, store) = fixture();
+        // Dense-only on qvec=[1,0,0] would rank id=1 first (exact match).
+        // BM25 on "delta eta" matches id=3 (both tokens) and id=2 (only
+        // "delta"); id=1 is absent from BM25. Fused winner must be id=3.
+        let qvec = vec![1.0, 0.0, 0.0];
+
+        let mut bd = LatencyBreakdown::default();
+        let opts = HybridOpts {
+            enabled: true,
+            rrf_k: 60,
+            overfetch_factor: 4,
+            temporal: None,
+        };
+        let out = query_hybrid(&store, "delta eta", &qvec, 3, &opts, &mut bd).unwrap();
+
+        assert_eq!(out.len(), 3, "should return 3 fused ids");
+        assert_eq!(out[0].id, 3, "lexical overlap winner first; got {out:?}");
+    }
+
+    #[test]
+    fn temporal_option_runs_decay_branch() {
+        let (_dir, store) = fixture();
+        let qvec = vec![1.0, 0.0, 0.0];
+
+        let mut bd = LatencyBreakdown::default();
+        let opts = HybridOpts {
+            enabled: true,
+            rrf_k: 60,
+            overfetch_factor: 4,
+            temporal: Some(TemporalOpts {
+                date_field: "published_date".into(),
+                halflife: Duration::from_secs(30 * 86400),
+                weight_floor: 0.3,
+                dateless_prior: 0.5,
+                blend: BlendMode::Multiplicative,
+                now: Utc::now(),
+            }),
+        };
+        let out = query_hybrid(&store, "alpha", &qvec, 3, &opts, &mut bd).unwrap();
+        assert!(!out.is_empty(), "decay branch returned empty");
+    }
+}
