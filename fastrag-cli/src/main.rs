@@ -523,6 +523,7 @@ async fn main() {
                 };
                 let query_opts = ops::QueryOpts {
                     cwe_expand: cwe_expand_effective,
+                    ..Default::default()
                 };
 
                 #[cfg(feature = "rerank")]

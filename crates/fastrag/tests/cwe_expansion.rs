@@ -88,7 +88,10 @@ fn cwe_expansion_returns_child_tagged_docs() {
         field: "cwe_id".into(),
         value: TypedValue::Numeric(89.0),
     };
-    let opts = QueryOpts { cwe_expand: true };
+    let opts = QueryOpts {
+        cwe_expand: true,
+        ..Default::default()
+    };
     let mut b = LatencyBreakdown::default();
     let hits_expanded = query_corpus_with_filter_opts(
         &corpus,
@@ -116,7 +119,10 @@ fn cwe_expansion_returns_child_tagged_docs() {
     );
 
     // Query with expansion OFF: only A.
-    let opts_off = QueryOpts { cwe_expand: false };
+    let opts_off = QueryOpts {
+        cwe_expand: false,
+        ..Default::default()
+    };
     let mut b = LatencyBreakdown::default();
     let hits_plain = query_corpus_with_filter_opts(
         &corpus,
@@ -154,7 +160,10 @@ fn free_text_trigger_synthesizes_filter() {
     .unwrap();
 
     // Free-text query mentioning CWE-89 with NO explicit filter. Expansion on.
-    let opts = QueryOpts { cwe_expand: true };
+    let opts = QueryOpts {
+        cwe_expand: true,
+        ..Default::default()
+    };
     let mut b = LatencyBreakdown::default();
     let hits = query_corpus_with_filter_opts(
         &corpus,

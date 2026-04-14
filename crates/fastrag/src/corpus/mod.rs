@@ -26,6 +26,10 @@ pub struct QueryOpts {
     /// predicates via the embedded taxonomy before filter evaluation,
     /// and synthesise an In filter from any CWE ids in the free-text query.
     pub cwe_expand: bool,
+
+    /// Hybrid retrieval (BM25 + dense RRF) with optional temporal decay.
+    /// When `enabled == false` (the default), the query path is dense-only.
+    pub hybrid: crate::corpus::hybrid::HybridOpts,
 }
 
 /// Options that opt a single `index_path_with_metadata` run into Contextual
@@ -1006,11 +1010,24 @@ pub fn query_corpus_with_filter_opts(
         };
     let filter = effective_filter.as_ref();
 
-    // Unfiltered: query Store for top_k dense hits and return.
+    // Unfiltered: hybrid or dense-only path.
     if filter.is_none() {
-        let t = Instant::now();
-        let scored = store.query_dense(&vector, top_k)?;
-        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+        let scored: Vec<(u64, f32)> = if opts.hybrid.enabled {
+            let fused = crate::corpus::hybrid::query_hybrid(
+                &store,
+                query,
+                &vector,
+                top_k,
+                &opts.hybrid,
+                breakdown,
+            )?;
+            fused.into_iter().map(|s| (s.id, s.score)).collect()
+        } else {
+            let t = Instant::now();
+            let dense = store.query_dense(&vector, top_k)?;
+            breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+            dense
+        };
         breakdown.finalize();
 
         return scored_ids_to_dtos(&store, &scored, Some(query), snippet_len);
@@ -1020,12 +1037,25 @@ pub fn query_corpus_with_filter_opts(
     let filter_expr = filter.unwrap();
     let overfetch_factors: &[usize] = &[4, 16, 32];
 
+    let fetch_candidates = |n: usize,
+                            bd: &mut LatencyBreakdown|
+     -> Result<Vec<(u64, f32)>, CorpusError> {
+        if opts.hybrid.enabled {
+            let fused =
+                crate::corpus::hybrid::query_hybrid(&store, query, &vector, n, &opts.hybrid, bd)?;
+            Ok(fused.into_iter().map(|s| (s.id, s.score)).collect())
+        } else {
+            let t = std::time::Instant::now();
+            let out = store.query_dense(&vector, n)?;
+            bd.hnsw_us = t.elapsed().as_micros() as u64;
+            Ok(out)
+        }
+    };
+
     for &factor in overfetch_factors {
         let fetch_count = top_k.saturating_mul(factor).max(top_k);
 
-        let t = Instant::now();
-        let scored = store.query_dense(&vector, fetch_count)?;
-        breakdown.hnsw_us = t.elapsed().as_micros() as u64;
+        let scored = fetch_candidates(fetch_count, breakdown)?;
 
         if scored.is_empty() {
             breakdown.finalize();

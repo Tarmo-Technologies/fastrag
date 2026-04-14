@@ -871,6 +871,7 @@ fn run_query(
 
     let query_opts = ops::QueryOpts {
         cwe_expand: params.cwe_expand.unwrap_or(state.cwe_expand_default),
+        ..Default::default()
     };
 
     #[cfg(feature = "rerank")]
