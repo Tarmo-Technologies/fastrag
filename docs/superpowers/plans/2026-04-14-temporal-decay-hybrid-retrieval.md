@@ -348,7 +348,7 @@ mod apply_decay_tests {
 Run: `cargo test -p fastrag --features retrieval --lib corpus::hybrid::apply_decay_tests`
 Expected: 4/4 fail.
 
-- [ ] **Step 3: Implement `apply_decay`**
+- [ ] **Step 3: Implement `apply_decay` (multiplicative branch)**
 
 Replace the `unimplemented!()` body:
 ```rust
@@ -362,28 +362,75 @@ pub fn apply_decay(
         dates.len(),
         "apply_decay: fused and dates must be index-aligned"
     );
+    if fused.is_empty() {
+        return Vec::new();
+    }
 
     let halflife_days = (opts.halflife.as_secs_f32() / 86_400.0).max(f32::EPSILON);
     let now_date = opts.now.date_naive();
+    let alpha = opts.weight_floor;
 
-    let mut out: Vec<ScoredId> = fused
-        .iter()
-        .zip(dates.iter())
-        .map(|(hit, date)| {
-            let age = date.map(|d| (now_date - d).num_days() as f32);
-            let factor = decay_factor(
-                age,
-                halflife_days,
-                opts.weight_floor,
-                opts.dateless_prior,
-                opts.blend,
-            );
-            ScoredId {
-                id: hit.id,
-                score: hit.score * factor,
-            }
-        })
-        .collect();
+    let mut out: Vec<ScoredId> = match opts.blend {
+        BlendMode::Multiplicative => fused
+            .iter()
+            .zip(dates.iter())
+            .map(|(hit, date)| {
+                let age = date.map(|d| (now_date - d).num_days() as f32);
+                let factor = decay_factor(
+                    age,
+                    halflife_days,
+                    alpha,
+                    opts.dateless_prior,
+                    opts.blend,
+                );
+                ScoredId {
+                    id: hit.id,
+                    score: hit.score * factor,
+                }
+            })
+            .collect(),
+        BlendMode::Additive => {
+            // Min-max normalize RRF scores within the candidate set.
+            // When all candidates have identical RRF score, every normalized
+            // score is 0.5 (neutral) so the decay term decides ordering.
+            let max = fused
+                .iter()
+                .map(|s| s.score)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let min = fused
+                .iter()
+                .map(|s| s.score)
+                .fold(f32::INFINITY, f32::min);
+            let span = (max - min).max(f32::EPSILON);
+            let normalize = |s: f32| -> f32 {
+                if (max - min).abs() < f32::EPSILON {
+                    0.5
+                } else {
+                    (s - min) / span
+                }
+            };
+            let ln2: f32 = std::f32::consts::LN_2;
+            fused
+                .iter()
+                .zip(dates.iter())
+                .map(|(hit, date)| {
+                    let norm_rrf = normalize(hit.score);
+                    let decay_term = match date {
+                        None => opts.dateless_prior,
+                        Some(d) => {
+                            let age = ((now_date - *d).num_days() as f32).max(0.0);
+                            (-ln2 * age / halflife_days).exp()
+                        }
+                    };
+                    let final_score = alpha * norm_rrf + (1.0 - alpha) * decay_term;
+                    ScoredId {
+                        id: hit.id,
+                        score: final_score,
+                    }
+                })
+                .collect()
+        }
+    };
 
     out.sort_by(|a, b| {
         b.score
@@ -394,16 +441,79 @@ pub fn apply_decay(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run multiplicative tests to verify they pass**
 
 Run: `cargo test -p fastrag --features retrieval --lib corpus::hybrid::apply_decay_tests`
 Expected: 4/4 PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add additive-mode tests**
+
+Append inside the `apply_decay_tests` module:
+```rust
+    fn opts_additive(halflife_days: u64, alpha: f32, prior: f32) -> TemporalOpts {
+        let mut o = opts(halflife_days, alpha, prior);
+        o.blend = BlendMode::Additive;
+        o
+    }
+
+    #[test]
+    fn additive_fresh_beats_stale_with_equal_relevance() {
+        // All rrf identical → normalized to 0.5. Decay term dominates.
+        let fused = vec![
+            ScoredId { id: 1, score: 0.8 }, // stale
+            ScoredId { id: 2, score: 0.8 }, // fresh
+        ];
+        let dates = vec![Some(ymd(2016, 4, 14)), Some(ymd(2026, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts_additive(30, 0.3, 0.5));
+        assert_eq!(out[0].id, 2, "fresh must rank first in additive mode");
+        assert_eq!(out[1].id, 1);
+    }
+
+    #[test]
+    fn additive_high_relevance_can_outrank_fresh_but_less_relevant() {
+        // alpha=0.7 — semantic weight heavy. Stale-but-relevant beats fresh-but-weak.
+        // id=1: rrf=1.0 (norm=1.0), stale → final = 0.7*1.0 + 0.3*~0 = 0.70
+        // id=2: rrf=0.1 (norm=0.0), fresh → final = 0.7*0.0 + 0.3*1.0 = 0.30
+        let fused = vec![
+            ScoredId { id: 1, score: 1.0 },
+            ScoredId { id: 2, score: 0.1 },
+        ];
+        let dates = vec![Some(ymd(2016, 4, 14)), Some(ymd(2026, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts_additive(30, 0.7, 0.5));
+        assert_eq!(out[0].id, 1, "high-relevance stale beats low-relevance fresh under alpha=0.7");
+    }
+
+    #[test]
+    fn additive_dateless_uses_prior_as_decay_term() {
+        // rrf all equal → normalized to 0.5.
+        // id=1 fresh: final = 0.5*0.5 + 0.5*1.0 = 0.75
+        // id=2 dateless (prior=0.5): final = 0.5*0.5 + 0.5*0.5 = 0.50
+        // id=3 stale (~decay≈0): final = 0.5*0.5 + 0.5*~0 = 0.25
+        let fused = vec![
+            ScoredId { id: 1, score: 1.0 },
+            ScoredId { id: 2, score: 1.0 },
+            ScoredId { id: 3, score: 1.0 },
+        ];
+        let dates = vec![
+            Some(ymd(2026, 4, 14)),
+            None,
+            Some(ymd(2016, 4, 14)),
+        ];
+        let out = apply_decay(&fused, &dates, &opts_additive(30, 0.5, 0.5));
+        assert_eq!(out.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+```
+
+- [ ] **Step 6: Run all apply_decay tests to verify they pass**
+
+Run: `cargo test -p fastrag --features retrieval --lib corpus::hybrid::apply_decay_tests`
+Expected: 7/7 PASS (4 multiplicative + 3 additive).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add crates/fastrag/src/corpus/hybrid.rs
-git commit -m "feat(hybrid): apply_decay walks ScoredId slice with date-aligned dates"
+git commit -m "feat(hybrid): apply_decay with multiplicative + additive blend modes"
 ```
 
 ---
@@ -1770,13 +1880,7 @@ Confirm all workflows green before closing the task. If any workflow fails, diag
 - TDD ordering (spec §TDD ordering) → Tasks 2–5 follow it exactly.
 - Deferred issues (spec §Deferred) → #53, #54, #55 already filed.
 
-**Gap to resolve before shipping:** the additive blend path. Two options:
-1. Add the additive implementation to Task 2 (expand `decay_factor` to honor `BlendMode::Additive` — requires an extra argument for the pre-fusion normalized RRF score, so move this into `apply_decay` instead). Add 3 more unit tests for additive mode.
-2. Drop `--time-decay-blend additive` from Task 9's CLI + Task 12's HTTP surface and file a new issue for it.
-
-**Recommendation:** drop additive from the CLI/HTTP surface for this issue (file follow-up issue). The spec exposes additive as an "escape valve for eval A/B testing"; without eval data showing it helps, shipping additional surface area is speculative. File a new issue: "Additive blend mode for temporal decay" and remove the `TimeDecayBlendArg::Additive` enum variant + the `time_decay_blend` CLI flag and the HTTP `blend` field. Keep `BlendMode::Additive` reserved in the `hybrid.rs` module (dead-code-allowed) so the follow-up issue doesn't need an enum rename.
-
-**Plan amendment:** between Task 8 and Task 9, insert a half-task to file the additive follow-up issue, and strip the `blend` flag / field from Tasks 9, 12, 14, 16. The design spec doesn't need changes because it already categorizes `blend` as multiplicative-default with additive available — just the "available as flag" becomes "reserved for follow-up."
+**Gap resolution:** additive blend is implemented in Task 3 Steps 3+5 with a min-max normalized RRF score per candidate set, blended convexly against the decay term. Three additive-specific unit tests cover fresh-beats-stale, high-relevance-beats-fresh-but-weak under `alpha=0.7`, and dateless-uses-prior-as-decay-term. CLI flag (Task 9), HTTP field (Task 12), and MCP param (Task 14) all remain in scope.
 
 ---
 
