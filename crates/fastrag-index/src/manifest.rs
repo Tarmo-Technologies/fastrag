@@ -19,6 +19,15 @@ pub struct CorpusManifest {
     /// Absent on corpora ingested without `--contextualize`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contextualizer: Option<ContextualizerManifest>,
+    /// Name of the record field that carries the CWE numeric id. Set at
+    /// ingest time via `--cwe-field`. When present, query-time CWE
+    /// expansion defaults on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwe_field: Option<String>,
+    /// Version string of the CWE taxonomy used when this corpus was built.
+    /// Written by the ingest path when `cwe_field` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwe_taxonomy_version: Option<String>,
 }
 
 /// Metadata about the contextualizer used at ingest time. Written once per
@@ -93,6 +102,8 @@ impl CorpusManifest {
             roots: Vec::new(),
             files: Vec::new(),
             contextualizer: None,
+            cwe_field: None,
+            cwe_taxonomy_version: None,
         }
     }
 }
@@ -180,6 +191,47 @@ mod v5_tests {
         let m: CorpusManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(m.version, 5);
         assert!(m.contextualizer.is_none());
+    }
+
+    #[test]
+    fn v5_with_cwe_field_roundtrip() {
+        let mut m = CorpusManifest::new(
+            sample_identity(),
+            sample_canary(),
+            1,
+            ManifestChunkingStrategy::Basic {
+                max_characters: 100,
+                overlap: 0,
+            },
+        );
+        m.cwe_field = Some("cwe_id".to_string());
+        m.cwe_taxonomy_version = Some("4.19.1".to_string());
+        let s = serde_json::to_string(&m).unwrap();
+        let back: CorpusManifest = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, m);
+        assert_eq!(back.cwe_field.as_deref(), Some("cwe_id"));
+        assert_eq!(back.cwe_taxonomy_version.as_deref(), Some("4.19.1"));
+    }
+
+    #[test]
+    fn v5_without_cwe_fields_deserializes() {
+        // Older writer without the new fields.
+        let m_ref = CorpusManifest::new(
+            sample_identity(),
+            sample_canary(),
+            1,
+            ManifestChunkingStrategy::Basic {
+                max_characters: 100,
+                overlap: 0,
+            },
+        );
+        let mut value = serde_json::to_value(&m_ref).unwrap();
+        value.as_object_mut().unwrap().remove("cwe_field");
+        value.as_object_mut().unwrap().remove("cwe_taxonomy_version");
+        let json = serde_json::to_string(&value).unwrap();
+        let m: CorpusManifest = serde_json::from_str(&json).unwrap();
+        assert!(m.cwe_field.is_none());
+        assert!(m.cwe_taxonomy_version.is_none());
     }
 
     #[test]
