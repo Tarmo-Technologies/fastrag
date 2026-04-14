@@ -409,6 +409,32 @@ metadata.
 The ingest summary reports `hygiene: rejected=N stripped=N lang-dropped=N
 kev-tagged=N`.
 
+### CWE Hierarchy Expansion
+
+When a corpus is ingested with `--cwe-field <name>`, the field is recorded
+in the manifest and query-time CWE descendant expansion is enabled by
+default. A query for CWE-89 (SQL Injection) also retrieves documents
+tagged with child CWEs like CWE-564 (Hibernate Injection).
+
+Override per-query:
+
+```bash
+fastrag query "sqli patterns" --corpus ./corpus --cwe-expand
+fastrag query "sqli patterns" --corpus ./corpus --no-cwe-expand
+```
+
+Via HTTP, pass `cwe_expand=true|false` as a query parameter on `/query`,
+or set the server-wide default with `--cwe-expand` on `serve-http`.
+
+The taxonomy is MITRE CWE-1000 (Research View), embedded in the binary
+at build time. Regenerate with:
+
+```bash
+cargo run -p fastrag-cwe --features compile-tool --bin compile-taxonomy -- \
+    --in path/to/cwec_v4.XX.xml \
+    --out crates/fastrag-cwe/data/cwe-tree-v4.XX.json
+```
+
 ### Eval Harness (optional)
 
 FastRAG ships with a hand-curated gold set and a config matrix for measuring retrieval quality on every retrieval-touching change.

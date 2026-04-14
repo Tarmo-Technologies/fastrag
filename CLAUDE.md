@@ -40,6 +40,11 @@ cargo test -p fastrag-nvd --test nvd_end_to_end                               # 
 cargo test -p fastrag --features hygiene --lib                                # Hygiene filters unit tests
 cargo test --workspace --features nvd,hygiene                                 # NVD parser + hygiene chain tests
 FASTRAG_NVD_TEST=1 cargo test -p fastrag-cli --features nvd,hygiene,retrieval --test security_profile_e2e -- --ignored  # End-to-end ingest with --security-profile (requires fastrag binary on PATH)
+cargo test -p fastrag-cwe                                                      # CWE taxonomy closure unit tests
+cargo test -p fastrag-cwe --features compile-tool                              # compile-taxonomy binary tests
+cargo test -p fastrag --test cwe_expansion --features retrieval                # CWE hierarchy expansion end-to-end
+cargo test -p fastrag-cli --test cwe_expand_e2e --features "retrieval,store"   # CLI --cwe-expand e2e
+cargo test -p fastrag-cli --test cwe_expand_http_e2e --features "retrieval,store"  # HTTP cwe_expand param e2e
 cargo clippy --workspace --all-targets --features retrieval,rerank,hybrid,contextual,eval,nvd,hygiene -- -D warnings  # Full lint gate with hygiene
 cargo fmt --check            # Format check
 cargo build --release        # Release build (binary at target/release/fastrag)
