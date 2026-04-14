@@ -121,3 +121,207 @@ mod decay_factor_tests {
         assert!((f - 1.0).abs() < 1e-6, "got {f}");
     }
 }
+
+/// Apply decay to every `ScoredId`. `dates` must be the same length as `fused`
+/// (index-aligned). `None` entries get the dateless prior.
+///
+/// Returns a new vector sorted by descending final score.
+pub fn apply_decay(
+    fused: &[ScoredId],
+    dates: &[Option<NaiveDate>],
+    opts: &TemporalOpts,
+) -> Vec<ScoredId> {
+    assert_eq!(
+        fused.len(),
+        dates.len(),
+        "apply_decay: fused and dates must be index-aligned"
+    );
+    if fused.is_empty() {
+        return Vec::new();
+    }
+
+    let halflife_days = (opts.halflife.as_secs_f32() / 86_400.0).max(f32::EPSILON);
+    let now_date = opts.now.date_naive();
+    let alpha = opts.weight_floor;
+
+    let mut out: Vec<ScoredId> = match opts.blend {
+        BlendMode::Multiplicative => fused
+            .iter()
+            .zip(dates.iter())
+            .map(|(hit, date)| {
+                let age = date.map(|d| (now_date - d).num_days() as f32);
+                let factor =
+                    decay_factor(age, halflife_days, alpha, opts.dateless_prior, opts.blend);
+                ScoredId {
+                    id: hit.id,
+                    score: hit.score * factor,
+                }
+            })
+            .collect(),
+        BlendMode::Additive => {
+            // Min-max normalize RRF scores within the candidate set.
+            // When all candidates have identical RRF score, every normalized
+            // score is 0.5 (neutral) so the decay term decides ordering.
+            let max = fused
+                .iter()
+                .map(|s| s.score)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let min = fused.iter().map(|s| s.score).fold(f32::INFINITY, f32::min);
+            let span = (max - min).max(f32::EPSILON);
+            let normalize = |s: f32| -> f32 {
+                if (max - min).abs() < f32::EPSILON {
+                    0.5
+                } else {
+                    (s - min) / span
+                }
+            };
+            let ln2: f32 = std::f32::consts::LN_2;
+            fused
+                .iter()
+                .zip(dates.iter())
+                .map(|(hit, date)| {
+                    let norm_rrf = normalize(hit.score);
+                    let decay_term = match date {
+                        None => opts.dateless_prior,
+                        Some(d) => {
+                            let age = ((now_date - *d).num_days() as f32).max(0.0);
+                            (-ln2 * age / halflife_days).exp()
+                        }
+                    };
+                    let final_score = alpha * norm_rrf + (1.0 - alpha) * decay_term;
+                    ScoredId {
+                        id: hit.id,
+                        score: final_score,
+                    }
+                })
+                .collect()
+        }
+    };
+
+    out.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
+}
+
+#[cfg(test)]
+mod apply_decay_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn opts(halflife_days: u64, alpha: f32, prior: f32) -> TemporalOpts {
+        TemporalOpts {
+            date_field: "published_date".into(),
+            halflife: Duration::from_secs(halflife_days * 86_400),
+            weight_floor: alpha,
+            dateless_prior: prior,
+            blend: BlendMode::Multiplicative,
+            now: Utc.with_ymd_and_hms(2026, 4, 14, 0, 0, 0).unwrap(),
+        }
+    }
+
+    fn ymd(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn uniform_age_preserves_order() {
+        let fused = vec![
+            ScoredId { id: 1, score: 0.9 },
+            ScoredId { id: 2, score: 0.8 },
+            ScoredId { id: 3, score: 0.7 },
+        ];
+        let same = Some(ymd(2026, 4, 1));
+        let out = apply_decay(&fused, &[same, same, same], &opts(30, 0.3, 0.5));
+        assert_eq!(out.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn fresh_outranks_equally_relevant_stale() {
+        // Both have rrf_score 0.8; one is today, one is 10 years old.
+        let fused = vec![
+            ScoredId { id: 1, score: 0.8 }, // stale
+            ScoredId { id: 2, score: 0.8 }, // fresh
+        ];
+        let dates = vec![Some(ymd(2016, 4, 14)), Some(ymd(2026, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts(30, 0.3, 0.5));
+        assert_eq!(out[0].id, 2, "fresh must rank first; got {out:?}");
+        assert_eq!(out[1].id, 1);
+    }
+
+    #[test]
+    fn dateless_interleaves_at_neutral_prior() {
+        // halflife=30d, alpha=0.3, prior=0.5.
+        // id=1 fresh -> factor=1.0 -> 1.0
+        // id=2 dateless -> factor=0.5 -> 0.5
+        // id=3 very stale (5y) -> factor→0.3 -> 0.3
+        let fused = vec![
+            ScoredId { id: 1, score: 1.0 },
+            ScoredId { id: 2, score: 1.0 },
+            ScoredId { id: 3, score: 1.0 },
+        ];
+        let dates = vec![Some(ymd(2026, 4, 14)), None, Some(ymd(2021, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts(30, 0.3, 0.5));
+        assert_eq!(out.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        let out = apply_decay(&[], &[], &opts(30, 0.3, 0.5));
+        assert!(out.is_empty());
+    }
+
+    fn opts_additive(halflife_days: u64, alpha: f32, prior: f32) -> TemporalOpts {
+        let mut o = opts(halflife_days, alpha, prior);
+        o.blend = BlendMode::Additive;
+        o
+    }
+
+    #[test]
+    fn additive_fresh_beats_stale_with_equal_relevance() {
+        // All rrf identical → normalized to 0.5. Decay term dominates.
+        let fused = vec![
+            ScoredId { id: 1, score: 0.8 }, // stale
+            ScoredId { id: 2, score: 0.8 }, // fresh
+        ];
+        let dates = vec![Some(ymd(2016, 4, 14)), Some(ymd(2026, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts_additive(30, 0.3, 0.5));
+        assert_eq!(out[0].id, 2, "fresh must rank first in additive mode");
+        assert_eq!(out[1].id, 1);
+    }
+
+    #[test]
+    fn additive_high_relevance_can_outrank_fresh_but_less_relevant() {
+        // alpha=0.7 — semantic weight heavy. Stale-but-relevant beats fresh-but-weak.
+        // id=1: rrf=1.0 (norm=1.0), stale → final = 0.7*1.0 + 0.3*~0 = 0.70
+        // id=2: rrf=0.1 (norm=0.0), fresh → final = 0.7*0.0 + 0.3*1.0 = 0.30
+        let fused = vec![
+            ScoredId { id: 1, score: 1.0 },
+            ScoredId { id: 2, score: 0.1 },
+        ];
+        let dates = vec![Some(ymd(2016, 4, 14)), Some(ymd(2026, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts_additive(30, 0.7, 0.5));
+        assert_eq!(
+            out[0].id, 1,
+            "high-relevance stale beats low-relevance fresh under alpha=0.7"
+        );
+    }
+
+    #[test]
+    fn additive_dateless_uses_prior_as_decay_term() {
+        // rrf all equal → normalized to 0.5.
+        // id=1 fresh: final = 0.5*0.5 + 0.5*1.0 = 0.75
+        // id=2 dateless (prior=0.5): final = 0.5*0.5 + 0.5*0.5 = 0.50
+        // id=3 stale (~decay≈0): final = 0.5*0.5 + 0.5*~0 = 0.25
+        let fused = vec![
+            ScoredId { id: 1, score: 1.0 },
+            ScoredId { id: 2, score: 1.0 },
+            ScoredId { id: 3, score: 1.0 },
+        ];
+        let dates = vec![Some(ymd(2026, 4, 14)), None, Some(ymd(2016, 4, 14))];
+        let out = apply_decay(&fused, &dates, &opts_additive(30, 0.5, 0.5));
+        assert_eq!(out.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+}
