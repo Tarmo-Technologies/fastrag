@@ -473,6 +473,8 @@ async fn main() {
             filter,
             filter_json,
             dense_only,
+            cwe_expand,
+            no_cwe_expand,
             #[cfg(feature = "rerank")]
             rerank,
             #[cfg(feature = "rerank")]
@@ -506,6 +508,23 @@ async fn main() {
                         _ => None,
                     };
 
+                // Resolve --cwe-expand / --no-cwe-expand. Default-on when the
+                // corpus manifest declares a cwe_field, default-off otherwise.
+                let cwe_expand_effective = if no_cwe_expand {
+                    false
+                } else if cwe_expand {
+                    true
+                } else {
+                    std::fs::read_to_string(corpus.join("manifest.json"))
+                        .ok()
+                        .and_then(|s| serde_json::from_str::<fastrag::CorpusManifest>(&s).ok())
+                        .and_then(|m| m.cwe_field)
+                        .is_some()
+                };
+                let query_opts = ops::QueryOpts {
+                    cwe_expand: cwe_expand_effective,
+                };
+
                 #[cfg(feature = "rerank")]
                 let use_rerank = !no_rerank;
                 #[cfg(not(feature = "rerank"))]
@@ -521,7 +540,7 @@ async fn main() {
                                 eprintln!("Error loading reranker: {e}");
                                 std::process::exit(1);
                             });
-                        ops::query_corpus_reranked(
+                        ops::query_corpus_reranked_opts(
                             &corpus,
                             &query,
                             top_k,
@@ -529,6 +548,7 @@ async fn main() {
                             embedder.as_ref() as &dyn DynEmbedderTrait,
                             reranker.as_ref(),
                             filter_expr.as_ref(),
+                            &query_opts,
                             &mut fastrag::corpus::LatencyBreakdown::default(),
                             0,
                         )
@@ -538,12 +558,13 @@ async fn main() {
                         unreachable!()
                     }
                 } else {
-                    ops::query_corpus_with_filter(
+                    ops::query_corpus_with_filter_opts(
                         &corpus,
                         &query,
                         top_k,
                         embedder.as_ref() as &dyn DynEmbedderTrait,
                         filter_expr.as_ref(),
+                        &query_opts,
                         &mut fastrag::corpus::LatencyBreakdown::default(),
                         0,
                     )
@@ -658,6 +679,7 @@ async fn main() {
             ollama_url,
             token,
             dense_only,
+            cwe_expand,
             #[cfg(feature = "rerank")]
             rerank,
             #[cfg(feature = "rerank")]
@@ -717,6 +739,7 @@ async fn main() {
                 embedder,
                 token,
                 dense_only,
+                cwe_expand,
                 rerank_cfg,
                 batch_max_queries,
                 tenant_field,

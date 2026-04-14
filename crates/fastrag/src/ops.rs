@@ -8,11 +8,11 @@ use crate::{
 };
 
 #[cfg(feature = "rerank")]
-pub use crate::corpus::query_corpus_reranked;
+pub use crate::corpus::{query_corpus_reranked, query_corpus_reranked_opts};
 #[cfg(feature = "retrieval")]
 pub use crate::corpus::{
-    CorpusError, CorpusIndexStats, CorpusInfo, SearchHitDto, corpus_info, index_path,
-    index_path_with_metadata, query_corpus, query_corpus_with_filter,
+    CorpusError, CorpusIndexStats, CorpusInfo, QueryOpts, SearchHitDto, corpus_info, index_path,
+    index_path_with_metadata, query_corpus, query_corpus_with_filter, query_corpus_with_filter_opts,
 };
 
 /// Result of parsing a single file.

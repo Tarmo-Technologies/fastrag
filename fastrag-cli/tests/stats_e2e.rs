@@ -17,6 +17,7 @@ async fn spawn_server(registry: CorpusRegistry) -> std::net::SocketAddr {
             embedder,
             None,
             false,
+            false,
             HttpRerankerConfig::default(),
             100,
             None,

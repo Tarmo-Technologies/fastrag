@@ -1243,16 +1243,43 @@ pub fn query_corpus_reranked(
     breakdown: &mut LatencyBreakdown,
     snippet_len: usize,
 ) -> Result<Vec<SearchHitDto>, CorpusError> {
+    query_corpus_reranked_opts(
+        corpus_dir,
+        query,
+        top_k,
+        over_fetch,
+        embedder,
+        reranker,
+        filter,
+        &QueryOpts::default(),
+        breakdown,
+        snippet_len,
+    )
+}
+
+pub fn query_corpus_reranked_opts(
+    corpus_dir: &Path,
+    query: &str,
+    top_k: usize,
+    over_fetch: usize,
+    embedder: &dyn DynEmbedderTrait,
+    reranker: &dyn fastrag_rerank::Reranker,
+    filter: Option<&crate::filter::FilterExpr>,
+    opts: &QueryOpts,
+    breakdown: &mut LatencyBreakdown,
+    snippet_len: usize,
+) -> Result<Vec<SearchHitDto>, CorpusError> {
     use fastrag_rerank::RerankHit;
     use std::time::Instant;
 
     let fan_out = top_k.saturating_mul(over_fetch.max(1)).max(top_k);
-    let first_stage = query_corpus_with_filter(
+    let first_stage = query_corpus_with_filter_opts(
         corpus_dir,
         query,
         fan_out,
         embedder,
         filter,
+        opts,
         breakdown,
         snippet_len,
     )?;

@@ -359,6 +359,16 @@ pub enum Command {
         #[cfg(feature = "rerank")]
         #[arg(long, default_value_t = 10)]
         rerank_over_fetch: usize,
+
+        /// Enable query-time CWE hierarchy expansion. Requires the corpus
+        /// to have been ingested with --cwe-field. Defaults on when the
+        /// manifest records a cwe_field.
+        #[arg(long, overrides_with = "no_cwe_expand")]
+        cwe_expand: bool,
+
+        /// Disable query-time CWE hierarchy expansion.
+        #[arg(long = "no-cwe-expand", overrides_with = "cwe_expand")]
+        no_cwe_expand: bool,
     },
 
     /// Show corpus metadata
@@ -546,6 +556,11 @@ pub enum Command {
         /// Maximum body size for POST /ingest (bytes). Default: 52428800 (50 MiB).
         #[arg(long, default_value_t = 52_428_800)]
         ingest_max_body: usize,
+
+        /// Default for query-time CWE hierarchy expansion. Per-request
+        /// override via the `cwe_expand` query parameter.
+        #[arg(long)]
+        cwe_expand: bool,
     },
 
     /// Delete a record by external ID from a store-backed corpus

@@ -35,6 +35,7 @@ struct AppState {
     embedder: DynEmbedder,
     metrics: PrometheusHandle,
     dense_only: bool,
+    cwe_expand_default: bool,
     batch_max_queries: usize,
     tenant_field: Option<String>,
     ingest_locks: IngestLocks,
@@ -159,6 +160,9 @@ struct QueryParams {
     /// Comma-separated field projection (e.g. "score,snippet" or "-chunk_text").
     #[serde(default)]
     fields: Option<String>,
+    /// Override server default `--cwe-expand`. None = use server default.
+    #[serde(default)]
+    cwe_expand: Option<bool>,
 }
 
 fn default_top_k() -> usize {
@@ -379,6 +383,7 @@ pub async fn serve_http_with_embedder(
         embedder,
         token,
         dense_only,
+        false,
         rerank_cfg,
         batch_max_queries,
         None,
@@ -394,6 +399,7 @@ pub async fn serve_http_with_registry_port(
     embedder: DynEmbedder,
     token: Option<String>,
     dense_only: bool,
+    cwe_expand_default: bool,
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
     tenant_field: Option<String>,
@@ -406,6 +412,7 @@ pub async fn serve_http_with_registry_port(
         embedder,
         token,
         dense_only,
+        cwe_expand_default,
         rerank_cfg,
         batch_max_queries,
         tenant_field,
@@ -421,6 +428,7 @@ pub async fn serve_http_with_registry(
     embedder: DynEmbedder,
     token: Option<String>,
     dense_only: bool,
+    cwe_expand_default: bool,
     rerank_cfg: HttpRerankerConfig,
     batch_max_queries: usize,
     tenant_field: Option<String>,
@@ -472,6 +480,7 @@ pub async fn serve_http_with_registry(
         embedder,
         metrics,
         dense_only,
+        cwe_expand_default,
         batch_max_queries,
         tenant_field,
         ingest_locks: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -860,12 +869,16 @@ fn run_query(
 
     let _ = state.dense_only; // hybrid removed; dense-only is the only path
 
+    let query_opts = ops::QueryOpts {
+        cwe_expand: params.cwe_expand.unwrap_or(state.cwe_expand_default),
+    };
+
     #[cfg(feature = "rerank")]
     {
         let skip = params.rerank.as_deref() == Some("off");
         if !skip && let Some(ref reranker) = state.reranker {
             let over_fetch = params.over_fetch.unwrap_or(state.rerank_over_fetch);
-            return ops::query_corpus_reranked(
+            return ops::query_corpus_reranked_opts(
                 &corpus_dir,
                 &params.q,
                 params.top_k,
@@ -873,18 +886,20 @@ fn run_query(
                 state.embedder.as_ref() as &dyn DynEmbedderTrait,
                 reranker.as_ref(),
                 filter,
+                &query_opts,
                 &mut fastrag::corpus::LatencyBreakdown::default(),
                 params.snippet_len,
             );
         }
     }
 
-    ops::query_corpus_with_filter(
+    ops::query_corpus_with_filter_opts(
         &corpus_dir,
         &params.q,
         params.top_k,
         state.embedder.as_ref() as &dyn DynEmbedderTrait,
         filter,
+        &query_opts,
         &mut fastrag::corpus::LatencyBreakdown::default(),
         params.snippet_len,
     )
