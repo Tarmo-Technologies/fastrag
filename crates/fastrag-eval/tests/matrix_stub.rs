@@ -87,14 +87,24 @@ fn multi_entry_gold_set() -> GoldSet {
 }
 
 #[test]
-fn run_matrix_executes_all_four_variants_in_order() {
+fn run_matrix_executes_all_five_variants_in_order() {
     let gs = single_entry_gold_set();
     let report = run_matrix(&StubDriver, &gs, 5, None).expect("run_matrix should succeed");
-    assert_eq!(report.runs.len(), 4);
+    assert_eq!(report.runs.len(), 5);
     assert_eq!(report.runs[0].variant, ConfigVariant::Primary);
     assert_eq!(report.runs[1].variant, ConfigVariant::NoRerank);
     assert_eq!(report.runs[2].variant, ConfigVariant::NoContextual);
     assert_eq!(report.runs[3].variant, ConfigVariant::DenseOnly);
+    assert_eq!(report.runs[4].variant, ConfigVariant::TemporalOn);
+}
+
+#[test]
+fn run_matrix_temporal_on_runs_without_errors() {
+    let gs = single_entry_gold_set();
+    let report = run_matrix(&StubDriver, &gs, 5, Some(&[ConfigVariant::TemporalOn]))
+        .expect("run_matrix should succeed");
+    assert_eq!(report.runs.len(), 1);
+    assert_eq!(report.runs[0].variant, ConfigVariant::TemporalOn);
 }
 
 #[test]

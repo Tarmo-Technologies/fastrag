@@ -1,6 +1,6 @@
-//! 4-variant config matrix runner and report types.
+//! 5-variant config matrix runner and report types.
 //!
-//! `ConfigVariant` represents the four ablation conditions evaluated together.
+//! `ConfigVariant` represents the five ablation conditions evaluated together.
 //! `run_matrix` drives a `CorpusDriver` over every variant and every gold-set
 //! question, collecting per-stage histograms and hit-rate metrics.
 
@@ -15,7 +15,7 @@ use fastrag::corpus::LatencyBreakdown;
 
 // ─── Variant enum ─────────────────────────────────────────────────────────────
 
-/// The four ablation conditions evaluated by the matrix runner.
+/// The five ablation conditions evaluated by the matrix runner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigVariant {
     /// Full stack: hybrid (BM25 + dense) + reranker + contextual corpus.
@@ -26,16 +26,19 @@ pub enum ConfigVariant {
     NoContextual,
     /// Dense-only retrieval (HNSW) + reranker, no BM25 fusion.
     DenseOnly,
+    /// Full stack + temporal decay applied post-fusion.
+    TemporalOn,
 }
 
 impl ConfigVariant {
-    /// All four variants in canonical order.
-    pub fn all() -> [ConfigVariant; 4] {
+    /// All five variants in canonical order.
+    pub fn all() -> [ConfigVariant; 5] {
         [
             ConfigVariant::Primary,
             ConfigVariant::NoRerank,
             ConfigVariant::NoContextual,
             ConfigVariant::DenseOnly,
+            ConfigVariant::TemporalOn,
         ]
     }
 
@@ -46,6 +49,7 @@ impl ConfigVariant {
             "no_rerank" => Some(ConfigVariant::NoRerank),
             "no_contextual" => Some(ConfigVariant::NoContextual),
             "dense_only" => Some(ConfigVariant::DenseOnly),
+            "temporal_on" => Some(ConfigVariant::TemporalOn),
             _ => None,
         }
     }
@@ -57,6 +61,7 @@ impl ConfigVariant {
             ConfigVariant::NoRerank => "no_rerank",
             ConfigVariant::NoContextual => "no_contextual",
             ConfigVariant::DenseOnly => "dense_only",
+            ConfigVariant::TemporalOn => "temporal_on",
         }
     }
 }
@@ -346,11 +351,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn config_variant_all_returns_four_in_order() {
+    fn config_variant_all_returns_five_in_order() {
         let all = ConfigVariant::all();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 5);
         assert_eq!(all[0], ConfigVariant::Primary);
         assert_eq!(all[3], ConfigVariant::DenseOnly);
+        assert_eq!(all[4], ConfigVariant::TemporalOn);
     }
 
     #[test]
@@ -359,6 +365,7 @@ mod tests {
         assert_eq!(ConfigVariant::NoRerank.label(), "no_rerank");
         assert_eq!(ConfigVariant::NoContextual.label(), "no_contextual");
         assert_eq!(ConfigVariant::DenseOnly.label(), "dense_only");
+        assert_eq!(ConfigVariant::TemporalOn.label(), "temporal_on");
     }
 
     #[test]

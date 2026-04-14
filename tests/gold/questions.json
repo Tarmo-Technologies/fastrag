@@ -798,6 +798,48 @@
       "must_contain_cve_ids": [],
       "must_contain_terms": ["shell", "argv"],
       "notes": "CWE hierarchy — parent CWE-77 in query, expected doc tagged with child CWE-78 (OS Command Injection)."
+    },
+    {
+      "id": "q-temporal-recency-1",
+      "question": "What is the most recent major MOVEit transfer vulnerability?",
+      "must_contain_cve_ids": ["CVE-2023-34362"],
+      "must_contain_terms": ["MOVEit", "SQL injection"],
+      "notes": "temporal-recency — should favor recent disclosures"
+    },
+    {
+      "id": "q-temporal-recency-2",
+      "question": "What is the latest Microsoft Exchange zero-day being exploited in the wild?",
+      "must_contain_cve_ids": ["CVE-2021-26855"],
+      "must_contain_terms": ["ProxyLogon", "Exchange"],
+      "notes": "temporal-recency — wording prefers newest Exchange CVE present in corpus"
+    },
+    {
+      "id": "q-temporal-recency-3",
+      "question": "Show me recent Confluence OGNL injection advisories",
+      "must_contain_cve_ids": [],
+      "must_contain_terms": ["Confluence", "OGNL"],
+      "notes": "temporal-recency — open-ended, prefers newer Confluence entries"
+    },
+    {
+      "id": "q-temporal-historical-1",
+      "question": "Describe the Heartbleed OpenSSL memory disclosure bug from 2014.",
+      "must_contain_cve_ids": ["CVE-2014-0160"],
+      "must_contain_terms": ["Heartbleed", "OpenSSL"],
+      "notes": "temporal-historical — specific older CVE by name"
+    },
+    {
+      "id": "q-temporal-historical-2",
+      "question": "Explain the 2014 Shellshock bash environment variable bug.",
+      "must_contain_cve_ids": ["CVE-2014-6271"],
+      "must_contain_terms": ["Shellshock", "bash"],
+      "notes": "temporal-historical — specific older CVE by name"
+    },
+    {
+      "id": "q-temporal-historical-3",
+      "question": "What was EternalBlue and how did WannaCry use it?",
+      "must_contain_cve_ids": ["CVE-2017-0144"],
+      "must_contain_terms": ["EternalBlue", "SMB"],
+      "notes": "temporal-historical — specific older CVE by name"
     }
   ]
 }
