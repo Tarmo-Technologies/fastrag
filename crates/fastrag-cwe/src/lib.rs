@@ -4,4 +4,7 @@
 pub mod data;
 pub mod taxonomy;
 
+#[cfg(feature = "compile-tool")]
+pub mod compile;
+
 pub use taxonomy::{Taxonomy, TaxonomyError};

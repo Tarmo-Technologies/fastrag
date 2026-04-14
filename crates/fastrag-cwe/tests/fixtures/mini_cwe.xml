@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Weakness_Catalog Version="4.16-test">
+  <Weaknesses>
+    <Weakness ID="89" Name="SQL Injection">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="943" View_ID="1000"/>
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="564" Name="Hibernate Injection">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="89" View_ID="1000"/>
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="943" Name="Improper Neutralization of Special Elements in Data Query Logic">
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="74" View_ID="1000"/>
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="74" Name="Injection">
+      <Related_Weaknesses/>
+    </Weakness>
+  </Weaknesses>
+</Weakness_Catalog>
