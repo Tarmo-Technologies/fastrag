@@ -1,5 +1,7 @@
 ---
 title: "CWE-416 — Use After Free: Memory Safety Vulnerability"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-416 — Use After Free

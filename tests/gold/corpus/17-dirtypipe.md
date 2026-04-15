@@ -1,5 +1,6 @@
 ---
 title: "CVE-2022-0847 — Linux Kernel Dirty Pipe Privilege Escalation"
+published_date: 2022-03-07
 ---
 
 # Linux Kernel — Dirty Pipe Pipe Buffer Overwrite

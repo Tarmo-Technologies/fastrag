@@ -1,5 +1,7 @@
 ---
 title: "CWE-352 — Cross-Site Request Forgery (CSRF)"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-352 — Cross-Site Request Forgery

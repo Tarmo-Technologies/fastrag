@@ -1,5 +1,6 @@
 ---
 title: "CVE-2024-6387 — regreSSHion OpenSSH Signal Handler Race Condition RCE"
+published_date: 2024-07-01
 ---
 
 # OpenSSH — regreSSHion Signal Handler Race Condition Remote Code Execution

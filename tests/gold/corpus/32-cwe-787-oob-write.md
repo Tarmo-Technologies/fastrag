@@ -1,5 +1,7 @@
 ---
 title: "CWE-787 — Out-of-Bounds Write: Buffer Overflow Exploitation"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-787 — Out-of-Bounds Write

@@ -1,5 +1,7 @@
 ---
 title: "CWE-611 — XML External Entity (XXE) Injection"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-611 — XML External Entity (XXE) Injection

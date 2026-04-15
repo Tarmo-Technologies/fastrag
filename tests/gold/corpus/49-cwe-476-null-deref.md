@@ -1,5 +1,7 @@
 ---
 title: "CWE-476 — NULL Pointer Dereference: Null Reference Crashes and Exploits"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-476 — NULL Pointer Dereference

@@ -1,5 +1,6 @@
 ---
 title: "CVE-2020-1472 — Zerologon Netlogon (Contextual)"
+published_date: 2020-08-17
 ---
 
 # The Authentication Protocol Cryptographic Bypass — Contextual Sample

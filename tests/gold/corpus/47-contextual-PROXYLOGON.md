@@ -1,5 +1,6 @@
 ---
 title: "CVE-2021-26855 — ProxyLogon Exchange SSRF (Contextual)"
+published_date: 2021-03-02
 ---
 
 # The Mail Server Pre-Auth Request Forgery Chain — Contextual Sample

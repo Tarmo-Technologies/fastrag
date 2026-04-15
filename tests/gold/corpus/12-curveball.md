@@ -1,5 +1,6 @@
 ---
 title: "CVE-2020-0601 — Windows CryptoAPI Certificate Validation Bypass (CurveBall)"
+published_date: 2020-01-14
 ---
 
 # Windows CryptoAPI — Elliptic Curve Certificate Spoofing (CurveBall)

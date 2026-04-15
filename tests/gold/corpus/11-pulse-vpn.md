@@ -1,5 +1,6 @@
 ---
 title: "CVE-2019-11510 — Pulse Secure VPN Arbitrary File Read"
+published_date: 2019-05-08
 ---
 
 # Pulse Secure VPN — Arbitrary File Read (Pre-Auth)

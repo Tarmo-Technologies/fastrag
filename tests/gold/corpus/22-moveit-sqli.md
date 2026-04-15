@@ -1,5 +1,6 @@
 ---
 title: "CVE-2023-34362 — MOVEit Transfer SQL Injection to Remote Code Execution"
+published_date: 2023-06-02
 ---
 
 # Progress MOVEit Transfer — SQL Injection to RCE

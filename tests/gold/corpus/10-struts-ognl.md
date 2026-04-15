@@ -1,5 +1,6 @@
 ---
 title: "CVE-2017-5638 — Apache Struts OGNL Injection Remote Code Execution"
+published_date: 2017-03-10
 ---
 
 # Apache Struts — OGNL Expression Injection RCE

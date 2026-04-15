@@ -1,5 +1,7 @@
 ---
 title: "CVE-2021-34527 — Windows Print Spooler PrintNightmare Remote Code Execution"
+published_date: 2021-07-01
+last_modified: 2021-07-07
 ---
 
 # Windows Print Spooler — PrintNightmare Remote Code Execution

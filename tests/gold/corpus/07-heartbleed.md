@@ -1,5 +1,6 @@
 ---
 title: "CVE-2014-0160 — OpenSSL Heartbleed Memory Disclosure"
+published_date: 2014-04-07
 ---
 
 # OpenSSL — Heartbleed Memory Disclosure

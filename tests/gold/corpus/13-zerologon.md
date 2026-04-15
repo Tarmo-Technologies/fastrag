@@ -1,5 +1,6 @@
 ---
 title: "CVE-2020-1472 — Zerologon Netlogon Privilege Escalation"
+published_date: 2020-08-17
 ---
 
 # Microsoft Netlogon — Zerologon Privilege Escalation to Domain Admin

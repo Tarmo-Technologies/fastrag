@@ -1,5 +1,6 @@
 ---
 title: "CVE-2014-6271 — Bash Shellshock Environment Variable Code Injection"
+published_date: 2014-09-24
 ---
 
 # Bash — Shellshock Environment Variable Code Injection

@@ -1,5 +1,7 @@
 ---
 title: "CWE-502 — Deserialization of Untrusted Data"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-502: Deserialization of Untrusted Data

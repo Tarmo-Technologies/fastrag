@@ -1,5 +1,7 @@
 ---
 title: "CISA KEV — BlueKeep (CVE-2019-0708)"
+published_date: 2019-05-14
+last_modified: 2021-11-03
 ---
 
 # BlueKeep — Microsoft Remote Desktop Services RCE

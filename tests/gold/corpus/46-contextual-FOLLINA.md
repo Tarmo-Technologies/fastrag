@@ -1,5 +1,6 @@
 ---
 title: "CVE-2022-30190 — Follina MSDT RCE (Contextual)"
+published_date: 2022-06-01
 ---
 
 # The Office Document Zero-Click Code Execution — Contextual Sample

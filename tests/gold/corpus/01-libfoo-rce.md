@@ -1,5 +1,6 @@
 ---
 title: "libfoo 2.3.1 — CVE-2024-12345 Remote Code Execution"
+published_date: 2024-03-15
 ---
 
 # libfoo Advisory CVE-2024-12345

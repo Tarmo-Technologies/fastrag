@@ -1,5 +1,6 @@
 ---
 title: "CVE-2021-26855 — Microsoft Exchange ProxyLogon SSRF to RCE"
+published_date: 2021-03-02
 ---
 
 # Microsoft Exchange — ProxyLogon Server-Side Request Forgery Chain

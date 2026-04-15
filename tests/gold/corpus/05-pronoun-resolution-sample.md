@@ -1,5 +1,6 @@
 ---
 title: "libfoo Security Advisory — Impact Assessment"
+published_date: 2024-03-15
 ---
 
 # Impact Assessment

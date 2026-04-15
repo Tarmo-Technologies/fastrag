@@ -1,5 +1,7 @@
 ---
 title: "CVE-2021-34527 — PrintNightmare Windows Print Spooler (Contextual)"
+published_date: 2021-07-01
+last_modified: 2021-07-07
 ---
 
 # The Print Service Privilege Escalation — Contextual Sample

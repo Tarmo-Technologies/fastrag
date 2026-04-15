@@ -1,5 +1,7 @@
 ---
 title: "CVE-2021-44228 — Apache Log4j2 Remote Code Execution (Log4Shell)"
+published_date: 2021-12-10
+last_modified: 2022-01-10
 ---
 
 # Apache Log4j2 — Log4Shell Remote Code Execution

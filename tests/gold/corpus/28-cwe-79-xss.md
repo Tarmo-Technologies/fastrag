@@ -1,5 +1,7 @@
 ---
 title: "CWE-79 — Cross-Site Scripting (XSS): Improper Neutralization of Input"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-79 — Cross-Site Scripting (XSS)

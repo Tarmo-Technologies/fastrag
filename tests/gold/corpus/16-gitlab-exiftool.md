@@ -1,5 +1,6 @@
 ---
 title: "CVE-2021-22205 — GitLab ExifTool Remote Code Execution via Image Upload"
+published_date: 2021-04-23
 ---
 
 # GitLab — ExifTool Remote Code Execution via Image Upload

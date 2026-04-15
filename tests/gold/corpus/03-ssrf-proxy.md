@@ -1,5 +1,6 @@
 ---
 title: "SSRF in Proxy Middleware — Exploitation and Mitigation"
+published_date: 2023-01-15
 ---
 
 # Server-Side Request Forgery via Proxy Middleware

@@ -1,5 +1,6 @@
 ---
 title: "CVE-2022-26134 — Confluence OGNL Injection (Contextual)"
+published_date: 2022-06-02
 ---
 
 # The Collaboration Platform Expression Injection — Contextual Sample

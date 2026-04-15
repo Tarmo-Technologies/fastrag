@@ -1,5 +1,6 @@
 ---
 title: "CVE-2022-26134 — Atlassian Confluence OGNL Injection Remote Code Execution"
+published_date: 2022-06-02
 ---
 
 # Atlassian Confluence — OGNL Injection RCE (Pre-Auth)

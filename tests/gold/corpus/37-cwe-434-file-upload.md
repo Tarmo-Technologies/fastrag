@@ -1,5 +1,7 @@
 ---
 title: "CWE-434 — Unrestricted File Upload: Dangerous File Type Execution"
+published_date: 2006-07-19
+last_modified: 2023-10-26
 ---
 
 # CWE-434 — Unrestricted Upload of File with Dangerous Type

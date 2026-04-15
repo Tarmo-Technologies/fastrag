@@ -1,5 +1,6 @@
 ---
 title: "CVE-2023-34362 — MOVEit Transfer SQL Injection (Contextual)"
+published_date: 2023-06-02
 ---
 
 # The File Transfer Platform Mass Exploitation — Contextual Sample

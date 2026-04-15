@@ -1,5 +1,6 @@
 ---
 title: "CVE-2024-3094 — xz-utils Supply Chain Backdoor in liblzma"
+published_date: 2024-03-29
 ---
 
 # xz-utils — Supply Chain Backdoor in SSH Authentication (liblzma)

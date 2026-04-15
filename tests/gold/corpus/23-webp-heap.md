@@ -1,5 +1,6 @@
 ---
 title: "CVE-2023-4863 — libwebp Heap Buffer Overflow in WebP Codec"
+published_date: 2023-09-12
 ---
 
 # libwebp — Heap Buffer Overflow in WebP Huffman Decoding

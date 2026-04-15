@@ -1,5 +1,6 @@
 ---
 title: "CVE-2022-30190 — Follina MSDT Remote Code Execution via DOCX"
+published_date: 2022-06-01
 ---
 
 # Microsoft MSDT — Follina Remote Code Execution via Office Documents

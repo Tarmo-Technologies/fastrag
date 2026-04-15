@@ -1,5 +1,6 @@
 ---
 title: "CVE-2023-23397 — Microsoft Outlook NTLM Relay via Calendar Reminder"
+published_date: 2023-03-14
 ---
 
 # Microsoft Outlook — Zero-Click NTLM Credential Leak via Calendar Item

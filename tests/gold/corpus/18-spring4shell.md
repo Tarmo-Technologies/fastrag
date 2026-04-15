@@ -1,5 +1,6 @@
 ---
 title: "CVE-2022-22965 — Spring Framework Spring4Shell Remote Code Execution"
+published_date: 2022-03-31
 ---
 
 # Spring Framework — Spring4Shell ClassLoader Data Binding RCE
