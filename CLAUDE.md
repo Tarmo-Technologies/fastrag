@@ -52,6 +52,7 @@ cargo test -p fastrag --features retrieval --test dedup_synthetic_gate      # Sy
 FASTRAG_DEDUP_GOLD=1 cargo test -p fastrag --features retrieval --test dedup_vams_gold -- --ignored  # VAMS labeled pairs benchmark
 cargo test -p fastrag --features retrieval --test hybrid_retrieval    # Hybrid BM25 + dense RRF integration test
 cargo test -p fastrag --features retrieval --test temporal_decay      # Temporal decay integration test (Date-typed metadata)
+cargo test -p fastrag --features store,retrieval --test frontmatter_metadata  # Markdown frontmatter → typed user_fields end-to-end
 cargo test -p fastrag-cli --features retrieval --test hybrid_e2e      # CLI --hybrid e2e (jsonl ingest + query)
 cargo test -p fastrag-cli --features retrieval --test temporal_decay_e2e        # CLI --time-decay-* e2e + error paths
 cargo test -p fastrag-cli --features retrieval --test temporal_decay_http_e2e   # HTTP GET /query decay params + 400 handling

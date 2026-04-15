@@ -227,6 +227,24 @@ Alongside each input file, an optional `<name>.meta.json` sidecar carrying a fla
 on the CLI, `&filter=k=v,k=v` on the HTTP `/query` endpoint, or as a `filter`
 object on the MCP `search_corpus` tool.
 
+#### Metadata in markdown frontmatter
+
+Markdown files can carry YAML frontmatter (a leading `---\n...\n---\n` block).
+The parser surfaces every scalar key as a string in the document's metadata map,
+and the index command promotes the named ones to typed values:
+
+```bash
+fastrag index ./docs --corpus ./corpus \
+    --metadata-fields published_date,severity \
+    --metadata-types published_date=date,severity=string
+```
+
+Resolution precedence on collision is CLI `--metadata` → sidecar `.meta.json` →
+frontmatter, with the later layer winning. Supported kinds in
+`--metadata-types` are `string`, `numeric`, `bool`, and `date` (`YYYY-MM-DD`).
+When `--metadata-fields` is set, typed values land in every chunk's
+`user_fields` and become consumable by temporal decay and metadata filters.
+
 The CLI accepts an optional local model path with `--model-path`. If omitted, FastRAG loads the default BGE-small-en-v1.5 embedder and caches it under `dirs::cache_dir()/fastrag/models/bge-small-en-v1.5`.
 
 ### Library

@@ -16,12 +16,16 @@ cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-lla
   index tests/gold/corpus \
   --corpus /tmp/gold-baseline/ctx \
   --embedder qwen3-q8 \
+  --metadata-fields published_date,last_modified \
+  --metadata-types published_date=date,last_modified=date \
   --contextualize
 
 cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
   index tests/gold/corpus \
   --corpus /tmp/gold-baseline/raw \
-  --embedder qwen3-q8
+  --embedder qwen3-q8 \
+  --metadata-fields published_date,last_modified \
+  --metadata-types published_date=date,last_modified=date
 
 # Run the matrix and write the baseline.
 cargo run --release --features eval,retrieval,rerank,hybrid,contextual,contextual-llama -- \
@@ -40,6 +44,14 @@ jq '.runs[] | {variant, hit_at_5, mrr_at_10}' docs/eval-baselines/current.json
 ```
 
 `Primary` should score at or above `DenseOnly` on `hit@5` for most questions. If not, the gold set or corpus needs curation — the questions may not be answerable by the docs.
+
+### Schema
+
+`current.json` is versioned via the `schema_version` field. Schema v2 (April
+2026) adds per-axis `buckets` on each `VariantReport` and an optional
+`per_bucket_slack` on the baseline file. Loading a v1 baseline against a v2
+report fails with a mismatch error pointing at this recapture command —
+refresh the baseline before the gate can run again.
 
 ## Refresh flow
 
