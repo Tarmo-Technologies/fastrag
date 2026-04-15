@@ -214,7 +214,7 @@ fn extract_frontmatter(text: &str) -> Result<(Vec<(String, String)>, usize), Fas
     let mut line_start: Option<usize> = None; // byte index where closing line starts
     let mut cursor = 0usize;
     for line in rest.split_inclusive('\n') {
-        let trimmed = line.trim_end_matches(|c| c == '\n' || c == '\r');
+        let trimmed = line.trim_end_matches(['\n', '\r']);
         if trimmed == "---" {
             yaml_end = Some(cursor);
             line_start = Some(cursor);
