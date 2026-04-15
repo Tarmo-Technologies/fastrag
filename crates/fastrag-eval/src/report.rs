@@ -169,7 +169,7 @@ mod tests {
     fn write_matrix_report_round_trips_through_json() {
         use crate::matrix::MatrixReport;
         let r = MatrixReport {
-            schema_version: 1,
+            schema_version: 2,
             git_rev: "abc123".into(),
             captured_at: "2026-04-11T00:00:00Z".into(),
             runs: vec![],

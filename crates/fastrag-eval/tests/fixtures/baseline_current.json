@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "git_rev": "baseline_commit_abc",
   "captured_at": "2026-04-11T00:00:00Z",
   "runs": [

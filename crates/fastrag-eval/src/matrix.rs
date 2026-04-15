@@ -341,7 +341,7 @@ pub fn run_matrix<D: CorpusDriver>(
     let captured_at = chrono::Utc::now().to_rfc3339();
 
     Ok(MatrixReport {
-        schema_version: 1,
+        schema_version: 2,
         git_rev: rev,
         captured_at,
         runs: variant_reports,

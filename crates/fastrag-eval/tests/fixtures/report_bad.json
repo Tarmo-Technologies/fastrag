@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "git_rev": "fresh_commit_def",
   "captured_at": "2026-04-12T00:00:00Z",
   "runs": [
