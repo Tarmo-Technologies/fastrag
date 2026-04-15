@@ -1734,6 +1734,7 @@ dependencies = [
  "fastrag-index",
  "fastrag-nvd",
  "fastrag-rerank",
+ "fastrag-store",
  "flate2",
  "hdrhistogram",
  "indicatif 0.17.11",

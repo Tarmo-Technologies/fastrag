@@ -15,6 +15,7 @@ fastrag-nvd.workspace = true
 fastrag-embed.workspace = true
 fastrag-index.workspace = true
 fastrag-rerank.workspace = true
+fastrag-store.workspace = true
 hdrhistogram.workspace = true
 indicatif = "0.17"
 memory-stats.workspace = true
