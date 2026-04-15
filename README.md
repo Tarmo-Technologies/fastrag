@@ -737,6 +737,29 @@ docker build -t fastrag .
 docker run -p 8081:8081 -v /srv/fastrag:/var/lib/fastrag fastrag
 ```
 
+## Clients
+
+### Python — `fastrag-client`
+
+A typed client for the `serve-http` API lives at [`clients/python/`](clients/python/). It wraps every HTTP endpoint with Pydantic v2 response models, an operator-overloaded filter builder, and an exception hierarchy covering auth, validation, 404, payload-size, and server errors. Both sync (`FastRAGClient`) and async (`AsyncFastRAGClient`) variants are exposed.
+
+```bash
+pip install -e clients/python
+```
+
+```python
+from fastrag_client import FastRAGClient, F
+
+client = FastRAGClient("http://localhost:8081", token="...")
+hits = client.query(
+    "invoice payment terms",
+    top_k=5,
+    filter=(F.source == "contracts") & (F.published_date >= "2025-01-01"),
+)
+```
+
+Requires Python 3.11+. Run `pytest` from `clients/python/` to exercise the respx-backed test suite.
+
 ## Architecture
 
 FastRAG uses a workspace of small, focused crates:
