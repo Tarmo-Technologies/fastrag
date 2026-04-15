@@ -223,10 +223,13 @@ fn similarity_search_one(
                 truncated: false,
             });
         }
-        let tail_below = candidates
-            .last()
-            .is_some_and(|(_, s)| *s < request.threshold);
-        if tail_below || candidates.is_empty() {
+        // Treat "HNSW returned fewer rows than requested" as tail-exhausted:
+        // the index has no more candidates to offer, so we are done.
+        let exhausted = candidates.len() < n
+            || candidates
+                .last()
+                .is_some_and(|(_, s)| *s < request.threshold);
+        if exhausted || candidates.is_empty() {
             return Ok(PerCorpusOutcome {
                 above,
                 candidates_examined,
@@ -354,9 +357,10 @@ mod tests {
 
         #[test]
         fn adaptive_overfetch_returns_all_above_threshold_when_tail_exhausted() {
-            // Mix 5 matching docs with 20 non-matching. All 5 should be returned
-            // even though initial overfetch = max_results * 10 = 10 is larger than
-            // the number of matches.
+            // 5 matches + 20 misses, max_results=10. Initial overfetch = 10*10 = 100
+            // already pulls everything (but the cap-hit/tail-below logic must not trip).
+            // We want to verify "above.len() < max_results" AND "tail below" fires,
+            // returning all 5 without truncation.
             let mut docs: Vec<(String, String)> = Vec::new();
             for i in 0..5 {
                 docs.push((format!("hit{i}"), "alpha".to_string()));
@@ -370,18 +374,40 @@ mod tests {
             let req = SimilarityRequest {
                 text: "alpha".into(),
                 threshold: 0.95,
-                max_results: 1, // max_results * 10 = 10 initial overfetch
+                max_results: 10, // ask for more than exist
                 targets: vec![("default".into(), corpus)],
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
-            // max_results=1 caps output to 1 hit, but stats.above_threshold reports
-            // the full count we detected. We only know it's >= 1 and <= 5.
-            assert_eq!(resp.hits.len(), 1);
-            assert!(resp.stats.above_threshold >= 1);
+            // Must return exactly 5 matches, not truncated.
+            assert_eq!(resp.hits.len(), 5, "all 5 matching docs should be returned");
+            assert_eq!(resp.stats.above_threshold, 5);
             assert!(!resp.truncated);
+        }
+
+        #[test]
+        fn small_corpus_fully_above_threshold_is_not_truncated() {
+            // 3 matching docs, max_results=10, cap large. The loop must detect
+            // HNSW-returned-fewer-than-requested and bail with truncated=false.
+            let (_t, corpus) = build_corpus(&[("a", "alpha"), ("b", "alpha"), ("c", "alpha")]);
+            let req = SimilarityRequest {
+                text: "alpha".into(),
+                threshold: 0.5,
+                max_results: 10,
+                targets: vec![("default".into(), corpus)],
+                filter: None,
+                snippet_len: 0,
+                overfetch_cap: 10_000,
+            };
+            let resp = similarity_search(&MockEmbedder, &req).unwrap();
+            assert_eq!(resp.hits.len(), 3);
+            assert_eq!(resp.stats.returned, 3);
+            assert!(
+                !resp.truncated,
+                "exhausted corpus must not trigger truncated"
+            );
         }
 
         #[test]
@@ -410,20 +436,28 @@ mod tests {
 
         #[test]
         fn filter_applied_before_threshold() {
-            // 4 docs with a `tag` metadata field; threshold alone matches all;
-            // filter keeps only tag="keep".
+            // 2 high-scoring docs tagged "drop" (body matches query exactly),
+            // 2 lower-scoring docs tagged "keep" (body partially matches query).
+            // With max_results=2 and overfetch_cap=4 we fetch all 4 candidates.
+            // A threshold-first-then-filter implementation would pick the top 2
+            // (both "drop") and the filter would evict them, yielding 0 results.
+            // The correct filter-before-threshold implementation keeps both "keep"
+            // rows because they still clear the 0.3 threshold.
             let tmp = tempfile::tempdir().unwrap();
             let jsonl = tmp.path().join("docs.jsonl");
             std::fs::write(
                 &jsonl,
                 concat!(
-                    r#"{"id":"a","body":"alpha","tag":"keep"}"#,
+                    // High-scoring "drop" rows — body identical to query "alpha".
+                    r#"{"id":"a","body":"alpha","tag":"drop"}"#,
                     "\n",
                     r#"{"id":"b","body":"alpha","tag":"drop"}"#,
                     "\n",
-                    r#"{"id":"c","body":"alpha","tag":"keep"}"#,
+                    // Lower-scoring "keep" rows — body shares "alpha" trigrams but
+                    // adds unrelated tokens, reducing cosine similarity.
+                    r#"{"id":"c","body":"alpha quux zork","tag":"keep"}"#,
                     "\n",
-                    r#"{"id":"d","body":"alpha","tag":"drop"}"#,
+                    r#"{"id":"d","body":"alpha quux zork","tag":"keep"}"#,
                 ),
             )
             .unwrap();
@@ -453,8 +487,12 @@ mod tests {
 
             let req = SimilarityRequest {
                 text: "alpha".into(),
-                threshold: 0.5,
-                max_results: 10,
+                // 0.3 is loose enough to admit "alpha quux zork" rows but tight
+                // enough to exclude truly unrelated content.
+                threshold: 0.3,
+                // max_results=2: a wrong threshold-first impl would fill this
+                // with the 2 "drop" rows before the filter can evict them.
+                max_results: 2,
                 targets: vec![("default".into(), corpus)],
                 filter: Some(FilterExpr::Eq {
                     field: "tag".into(),
