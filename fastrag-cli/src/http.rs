@@ -1372,6 +1372,7 @@ async fn similar_handler(
         filter,
         snippet_len,
         overfetch_cap: state.similar_overfetch_cap,
+        verify: None,
     };
     let embedder = state.embedder.clone();
 

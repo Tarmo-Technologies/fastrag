@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
+use crate::corpus::verify::{self, Signature, VerifyConfig};
 use crate::corpus::{CorpusError, LatencyBreakdown, SearchHitDto, scored_ids_to_dtos};
 use crate::filter::FilterExpr;
 use fastrag_embed::{DynEmbedderTrait, QueryText};
@@ -28,12 +29,19 @@ pub struct SimilarityRequest {
     pub snippet_len: usize,
     /// Hard cap on per-corpus overfetch. The adaptive loop stops at this count.
     pub overfetch_cap: usize,
+    /// Optional second-stage Jaccard verifier over chunk text. When `Some`,
+    /// candidates below `verify.threshold` are dropped before `max_results`.
+    pub verify: Option<VerifyConfig>,
 }
 
 /// One hit in the merged result set.
 #[derive(Debug, Clone, Serialize)]
 pub struct SimilarityHit {
     pub cosine_similarity: f32,
+    /// Jaccard estimate from the MinHash verifier. Populated only when the
+    /// request carried a `verify` block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_score: Option<f32>,
     pub corpus: String,
     #[serde(flatten)]
     pub dto: SearchHitDto,
@@ -44,6 +52,8 @@ pub struct SimilarityHit {
 pub struct PerCorpusStats {
     pub candidates_examined: usize,
     pub above_threshold: usize,
+    #[serde(skip_serializing_if = "is_zero_usize")]
+    pub dropped_by_verifier: usize,
 }
 
 /// Aggregate diagnostics surfaced in the response.
@@ -52,9 +62,17 @@ pub struct SimilarityStats {
     pub candidates_examined: usize,
     pub above_threshold: usize,
     pub returned: usize,
+    /// Total candidates dropped by the MinHash verifier across all corpora.
+    /// Serialized only when the verifier ran and dropped at least one hit.
+    #[serde(skip_serializing_if = "is_zero_usize")]
+    pub dropped_by_verifier: usize,
     /// Populated only when the request targeted multiple corpora.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub per_corpus: std::collections::BTreeMap<String, PerCorpusStats>,
+}
+
+fn is_zero_usize(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Full response body.
@@ -85,6 +103,12 @@ pub fn similarity_search(
         .ok_or(CorpusError::EmptyEmbeddingOutput)?;
     latency.embed_us = embed_start.elapsed().as_micros() as u64;
 
+    // Pre-compute the query MinHash signature once if verify is requested.
+    let query_sig: Option<Signature> = request
+        .verify
+        .as_ref()
+        .map(|_| verify::signature_of(&request.text));
+
     // Fan out per corpus in parallel — embed happened once above.
     use rayon::prelude::*;
 
@@ -92,15 +116,17 @@ pub fn similarity_search(
         .targets
         .par_iter()
         .map(|(name, path)| {
-            let outcome = similarity_search_one(&vector, path, request, embedder);
+            let outcome =
+                similarity_search_one(&vector, path, request, embedder, query_sig.as_ref());
             (name.clone(), outcome)
         })
         .collect();
 
     let mut per_corpus: std::collections::BTreeMap<String, PerCorpusStats> =
         std::collections::BTreeMap::new();
-    let mut merged_raw: Vec<(String, u64, f32)> = Vec::new();
+    let mut merged_raw: Vec<(String, u64, f32, Option<f32>)> = Vec::new();
     let mut any_truncated = false;
+    let mut total_dropped_by_verifier: usize = 0;
 
     for (name, result) in per {
         let outcome = result?;
@@ -110,11 +136,14 @@ pub fn similarity_search(
             PerCorpusStats {
                 candidates_examined: outcome.candidates_examined,
                 above_threshold: outcome.above.len(),
+                dropped_by_verifier: outcome.dropped_by_verifier,
             },
         );
+        total_dropped_by_verifier =
+            total_dropped_by_verifier.saturating_add(outcome.dropped_by_verifier);
         any_truncated |= outcome.truncated;
-        for (id, score) in outcome.above {
-            merged_raw.push((name.clone(), id, score));
+        for (id, score, vscore) in outcome.above {
+            merged_raw.push((name.clone(), id, score, vscore));
         }
     }
 
@@ -129,12 +158,18 @@ pub fn similarity_search(
     let above_threshold_total = merged_raw.len();
     merged_raw.truncate(request.max_results);
 
+    // Index verify_score by (corpus, id) so we can attach after hydration.
+    let vscore_by_id: std::collections::HashMap<(String, u64), Option<f32>> = merged_raw
+        .iter()
+        .map(|(name, id, _, v)| ((name.clone(), *id), *v))
+        .collect();
+
     // Hydrate survivors via the Store(s) they came from.
     // We re-open each Store once per group to batch-hydrate.
     let mut hits: Vec<SimilarityHit> = Vec::with_capacity(merged_raw.len());
     let mut by_corpus: std::collections::BTreeMap<&String, Vec<(u64, f32)>> =
         std::collections::BTreeMap::new();
-    for (name, id, score) in &merged_raw {
+    for (name, id, score, _) in &merged_raw {
         by_corpus.entry(name).or_default().push((*id, *score));
     }
     for (name, scored) in by_corpus {
@@ -150,10 +185,17 @@ pub fn similarity_search(
         } else {
             None
         };
+        // Track chunk ids in survivor order so we can pair DTOs back to their vscore.
+        let scored_ids: Vec<u64> = scored.iter().map(|(id, _)| *id).collect();
         let dtos = scored_ids_to_dtos(&store, &scored, snippet_query, request.snippet_len)?;
-        for dto in dtos {
+        // DTOs are produced one per chunk_index within each external_id group. We
+        // pair them to the input scored ids by position — `scored_ids_to_dtos`
+        // emits len(scored) DTOs in stable order when ids are distinct chunks.
+        for (dto, chunk_id) in dtos.into_iter().zip(scored_ids.into_iter()) {
+            let vscore = *vscore_by_id.get(&(name.clone(), chunk_id)).unwrap_or(&None);
             hits.push(SimilarityHit {
                 cosine_similarity: dto.score,
+                verify_score: vscore,
                 corpus: name.clone(),
                 dto,
             });
@@ -175,6 +217,7 @@ pub fn similarity_search(
         candidates_examined: per_corpus.values().map(|p| p.candidates_examined).sum(),
         above_threshold: above_threshold_total,
         returned,
+        dropped_by_verifier: total_dropped_by_verifier,
         per_corpus: if request.targets.len() > 1 {
             per_corpus
         } else {
@@ -191,8 +234,10 @@ pub fn similarity_search(
 }
 
 struct PerCorpusOutcome {
-    above: Vec<(u64, f32)>,
+    /// `(id, cosine, optional verify score)` tuples post both thresholds.
+    above: Vec<(u64, f32, Option<f32>)>,
     candidates_examined: usize,
+    dropped_by_verifier: usize,
     truncated: bool,
     hnsw_us: u64,
 }
@@ -202,12 +247,14 @@ fn similarity_search_one(
     corpus_path: &std::path::Path,
     request: &SimilarityRequest,
     embedder: &dyn DynEmbedderTrait,
+    query_sig: Option<&Signature>,
 ) -> Result<PerCorpusOutcome, CorpusError> {
     let store = fastrag_store::Store::open(corpus_path, embedder)?;
 
     let mut fetch_count = request.max_results.saturating_mul(10).max(1);
     let cap = request.overfetch_cap.max(1);
     let mut total_hnsw_us: u64 = 0;
+    let mut total_dropped: usize = 0;
 
     loop {
         let n = fetch_count.min(cap);
@@ -221,16 +268,51 @@ fn similarity_search_one(
             None => candidates.clone(),
         };
 
-        let above: Vec<(u64, f32)> = filtered
+        let above_cosine: Vec<(u64, f32)> = filtered
             .iter()
             .filter(|(_, s)| *s >= request.threshold)
             .copied()
             .collect();
 
-        if above.len() >= request.max_results {
+        // Second stage: optional MinHash verifier.
+        let (above_verified, this_dropped): (Vec<(u64, f32, Option<f32>)>, usize) =
+            match (&request.verify, query_sig) {
+                (Some(vcfg), Some(qsig)) => {
+                    // Fetch chunk_text for the cosine-surviving candidates.
+                    let hits = store.fetch_hits(&above_cosine)?;
+                    let mut text_by_id: std::collections::HashMap<u64, String> =
+                        std::collections::HashMap::with_capacity(above_cosine.len());
+                    for hit in &hits {
+                        for chunk in &hit.chunks {
+                            text_by_id.insert(chunk.id, chunk.chunk_text.clone());
+                        }
+                    }
+                    let mut kept = Vec::with_capacity(above_cosine.len());
+                    let mut dropped = 0usize;
+                    for (id, cosine) in &above_cosine {
+                        let text = text_by_id.get(id).map(String::as_str).unwrap_or_default();
+                        let cand_sig = verify::signature_of(text);
+                        let jscore = verify::jaccard(qsig, &cand_sig);
+                        if jscore >= vcfg.threshold {
+                            kept.push((*id, *cosine, Some(jscore)));
+                        } else {
+                            dropped += 1;
+                        }
+                    }
+                    (kept, dropped)
+                }
+                _ => (
+                    above_cosine.iter().map(|(i, s)| (*i, *s, None)).collect(),
+                    0,
+                ),
+            };
+        total_dropped = total_dropped.saturating_add(this_dropped);
+
+        if above_verified.len() >= request.max_results {
             return Ok(PerCorpusOutcome {
-                above,
+                above: above_verified,
                 candidates_examined,
+                dropped_by_verifier: total_dropped,
                 truncated: false,
                 hnsw_us: total_hnsw_us,
             });
@@ -243,16 +325,18 @@ fn similarity_search_one(
                 .is_some_and(|(_, s)| *s < request.threshold);
         if exhausted || candidates.is_empty() {
             return Ok(PerCorpusOutcome {
-                above,
+                above: above_verified,
                 candidates_examined,
+                dropped_by_verifier: total_dropped,
                 truncated: false,
                 hnsw_us: total_hnsw_us,
             });
         }
         if n >= cap {
             return Ok(PerCorpusOutcome {
-                above,
+                above: above_verified,
                 candidates_examined,
+                dropped_by_verifier: total_dropped,
                 truncated: true,
                 hnsw_us: total_hnsw_us,
             });
@@ -273,10 +357,12 @@ mod tests {
         let _ = stats.candidates_examined;
         let _ = stats.above_threshold;
         let _ = stats.returned;
+        let _ = stats.dropped_by_verifier;
         let _ = stats.per_corpus;
         let pc = PerCorpusStats::default();
         let _ = pc.candidates_examined;
         let _ = pc.above_threshold;
+        let _ = pc.dropped_by_verifier;
     }
 
     #[cfg(feature = "store")]
@@ -331,6 +417,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert_eq!(resp.hits.len(), 2, "both corpora contribute one hit");
@@ -398,6 +485,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             similarity_search(&embedder, &req).unwrap();
             assert_eq!(
@@ -421,6 +509,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert_eq!(resp.hits.len(), 2);
@@ -483,6 +572,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert_eq!(resp.hits.len(), 1, "only 'a' should pass 0.95 threshold");
@@ -511,6 +601,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert_eq!(resp.hits.len(), 3);
@@ -543,6 +634,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             // Must return exactly 5 matches, not truncated.
@@ -564,6 +656,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert_eq!(resp.hits.len(), 3);
@@ -592,6 +685,7 @@ mod tests {
                 filter: None,
                 snippet_len: 0,
                 overfetch_cap: 5, // cap below corpus size
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert!(resp.truncated, "cap should trip the truncated flag");
@@ -664,6 +758,7 @@ mod tests {
                 }),
                 snippet_len: 0,
                 overfetch_cap: 10_000,
+                verify: None,
             };
             let resp = similarity_search(&MockEmbedder, &req).unwrap();
             assert_eq!(resp.hits.len(), 2, "only tag=keep rows should survive");
