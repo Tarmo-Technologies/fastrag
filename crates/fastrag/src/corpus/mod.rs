@@ -1069,29 +1069,9 @@ pub fn query_corpus_with_filter_opts(
             return Ok(vec![]);
         }
 
-        let ids: Vec<u64> = scored.iter().map(|(id, _)| *id).collect();
-        let metadata_rows = store.fetch_metadata(&ids)?;
-
-        // Build a lookup from id → metadata fields for filter evaluation.
-        let meta_map: std::collections::HashMap<
-            u64,
-            &[(String, fastrag_store::schema::TypedValue)],
-        > = metadata_rows
-            .iter()
-            .map(|(id, fields)| (*id, fields.as_slice()))
-            .collect();
-
         // Evaluate filter and keep passing candidates in score order.
-        let passing: Vec<(u64, f32)> = scored
-            .iter()
-            .filter(|(id, _)| {
-                meta_map
-                    .get(id)
-                    .is_some_and(|fields| crate::filter::matches(filter_expr, fields))
-            })
-            .take(top_k)
-            .copied()
-            .collect();
+        let passing_all = filter_scored_ids(&store, &scored, filter_expr)?;
+        let passing: Vec<(u64, f32)> = passing_all.into_iter().take(top_k).collect();
 
         if passing.len() >= top_k || factor == *overfetch_factors.last().unwrap() {
             breakdown.finalize();
@@ -1141,6 +1121,40 @@ fn synthesize_cwe_filter_from_query(
         field: cwe_field.to_string(),
         values,
     })
+}
+
+/// Filter a scored candidate list by a `FilterExpr`, preserving input order
+/// and scores. Drops rows whose metadata is missing, or whose metadata fails
+/// the expression.
+///
+/// Shared by `query_corpus_with_filter_opts` (filtered branch) and
+/// `corpus::similar::similarity_search`.
+#[cfg(feature = "store")]
+pub(crate) fn filter_scored_ids(
+    store: &fastrag_store::Store,
+    scored: &[(u64, f32)],
+    filter: &crate::filter::FilterExpr,
+) -> Result<Vec<(u64, f32)>, CorpusError> {
+    if scored.is_empty() {
+        return Ok(vec![]);
+    }
+    let ids: Vec<u64> = scored.iter().map(|(id, _)| *id).collect();
+    let metadata_rows = store.fetch_metadata(&ids)?;
+    let meta_map: std::collections::HashMap<u64, &[(String, fastrag_store::schema::TypedValue)]> =
+        metadata_rows
+            .iter()
+            .map(|(id, fields)| (*id, fields.as_slice()))
+            .collect();
+
+    Ok(scored
+        .iter()
+        .filter(|(id, _)| {
+            meta_map
+                .get(id)
+                .is_some_and(|fields| crate::filter::matches(filter, fields))
+        })
+        .copied()
+        .collect())
 }
 
 /// Convert a slice of `(id, score)` pairs into `SearchHitDto`s via the Store.
@@ -2031,5 +2045,103 @@ mod embedder_mismatch_tests {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("doc.txt"), "hello world foo bar").unwrap();
         dir
+    }
+}
+
+#[cfg(all(test, feature = "store"))]
+mod filter_scored_ids_tests {
+    use super::*;
+    use crate::filter::FilterExpr;
+    use crate::ingest::engine::index_jsonl;
+    use crate::ingest::jsonl::JsonlIngestConfig;
+    use fastrag_embed::test_utils::MockEmbedder;
+    use fastrag_store::schema::{TypedKind, TypedValue};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn filter_scored_ids_keeps_only_matching_rows() {
+        let tmp = tempfile::tempdir().unwrap();
+        let jsonl = tmp.path().join("docs.jsonl");
+        std::fs::write(
+            &jsonl,
+            concat!(
+                r#"{"id":"a","body":"alpha","sev":1}"#,
+                "\n",
+                r#"{"id":"b","body":"beta","sev":2}"#,
+                "\n",
+                r#"{"id":"c","body":"gamma","sev":3}"#,
+            ),
+        )
+        .unwrap();
+        let corpus = tmp.path().join("corpus");
+        let cfg = JsonlIngestConfig {
+            text_fields: vec!["body".into()],
+            id_field: "id".into(),
+            metadata_fields: vec!["sev".into()],
+            metadata_types: BTreeMap::from([("sev".into(), TypedKind::Numeric)]),
+            array_fields: vec![],
+            cwe_field: None,
+        };
+        index_jsonl(
+            &jsonl,
+            &corpus,
+            &ChunkingStrategy::Basic {
+                max_characters: 500,
+                overlap: 0,
+            },
+            &MockEmbedder as &dyn fastrag_embed::DynEmbedderTrait,
+            &cfg,
+        )
+        .unwrap();
+
+        let store = fastrag_store::Store::open(
+            &corpus,
+            &MockEmbedder as &dyn fastrag_embed::DynEmbedderTrait,
+        )
+        .unwrap();
+
+        // ids 1, 2, 3 correspond to chunks for "a", "b", "c" respectively
+        // (inserted in order; actual ids depend on store internals, so we query
+        // all three and find the one with sev=2 by examining returned metadata).
+        let all_ids: Vec<u64> = {
+            let qvec = (MockEmbedder as fastrag_embed::test_utils::MockEmbedder)
+                .embed_query_dyn(&[fastrag_embed::QueryText::new("beta")])
+                .unwrap()
+                .into_iter()
+                .next()
+                .unwrap();
+            store
+                .query_dense(&qvec, 10)
+                .unwrap()
+                .iter()
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        assert!(!all_ids.is_empty(), "store must contain at least one chunk");
+
+        // Build scored list from all ids with dummy scores
+        let scored: Vec<(u64, f32)> = all_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| (id, 0.9 - i as f32 * 0.1))
+            .collect();
+
+        let expr = FilterExpr::Eq {
+            field: "sev".into(),
+            value: TypedValue::Numeric(2.0),
+        };
+
+        let kept = filter_scored_ids(&store, &scored, &expr).unwrap();
+        assert_eq!(kept.len(), 1, "only the row with sev=2 should pass");
+        // Score must be preserved exactly
+        let expected_score = scored
+            .iter()
+            .find(|(id, _)| *id == kept[0].0)
+            .map(|(_, s)| *s)
+            .unwrap();
+        assert!(
+            (kept[0].1 - expected_score).abs() < 1e-6,
+            "score must be preserved"
+        );
     }
 }
