@@ -4,842 +4,1801 @@
     {
       "id": "q001",
       "question": "Is there a known RCE in libfoo?",
-      "must_contain_cve_ids": ["CVE-2024-12345"],
-      "must_contain_terms": ["libfoo", "remote code execution"],
-      "notes": "Pronoun-resolution canary — chunk body says 'the vulnerability'"
+      "must_contain_cve_ids": [
+        "CVE-2024-12345"
+      ],
+      "must_contain_terms": [
+        "libfoo",
+        "remote code execution"
+      ],
+      "notes": "Pronoun-resolution canary — chunk body says 'the vulnerability'",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q002",
       "question": "What CVE covers the BlueKeep RDP flaw?",
-      "must_contain_cve_ids": ["CVE-2019-0708"],
-      "must_contain_terms": ["BlueKeep", "RDP"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2019-0708"
+      ],
+      "must_contain_terms": [
+        "BlueKeep",
+        "RDP"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q003",
       "question": "How can SSRF be exploited against the proxy middleware?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["SSRF", "proxy", "mitigation"],
-      "notes": "Concept lookup"
+      "must_contain_terms": [
+        "SSRF",
+        "proxy",
+        "mitigation"
+      ],
+      "notes": "Concept lookup",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q004",
       "question": "What weakness does CWE-502 describe?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["deserialization", "untrusted data"],
-      "notes": "CWE concept lookup"
+      "must_contain_terms": [
+        "deserialization",
+        "untrusted data"
+      ],
+      "notes": "CWE concept lookup",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q005",
       "question": "Which advisory describes the libfoo buffer overflow?",
-      "must_contain_cve_ids": ["CVE-2024-12345"],
-      "must_contain_terms": ["buffer overflow"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2024-12345"
+      ],
+      "must_contain_terms": [
+        "buffer overflow"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q006",
       "question": "What year was BlueKeep disclosed?",
-      "must_contain_cve_ids": ["CVE-2019-0708"],
-      "must_contain_terms": ["2019"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2019-0708"
+      ],
+      "must_contain_terms": [
+        "2019"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q007",
       "question": "Is SSRF mitigated by allowlist?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["SSRF", "allowlist"],
-      "notes": null
+      "must_contain_terms": [
+        "SSRF",
+        "allowlist"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q008",
       "question": "How does CWE-502 relate to gadget chains?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-502", "gadget"],
-      "notes": null
+      "must_contain_terms": [
+        "CWE-502",
+        "gadget"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q009",
       "question": "What is the impact of the libfoo vulnerability?",
-      "must_contain_cve_ids": ["CVE-2024-12345"],
-      "must_contain_terms": ["impact"],
-      "notes": "Requires context prefix — chunk body never says 'libfoo'"
+      "must_contain_cve_ids": [
+        "CVE-2024-12345"
+      ],
+      "must_contain_terms": [
+        "impact"
+      ],
+      "notes": "Requires context prefix — chunk body never says 'libfoo'",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q010",
       "question": "Which CVE affects Microsoft Remote Desktop Services pre-authentication?",
-      "must_contain_cve_ids": ["CVE-2019-0708"],
-      "must_contain_terms": ["pre-authentication"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2019-0708"
+      ],
+      "must_contain_terms": [
+        "pre-authentication"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q011",
       "question": "What CVE is associated with the Log4Shell vulnerability?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["Log4j", "JNDI"],
-      "notes": "CVE lookup — Log4Shell"
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "Log4j",
+        "JNDI"
+      ],
+      "notes": "CVE lookup — Log4Shell",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q012",
       "question": "Which CVE describes the Apache Log4j2 JNDI lookup RCE?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["remote code execution"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "remote code execution"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q013",
       "question": "What versions of Log4j2 are affected by Log4Shell?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["2.0", "2.14.1"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "2.0",
+        "2.14.1"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q014",
       "question": "How does CVE-2021-44228 use JNDI to achieve code execution?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["JNDI", "LDAP"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "JNDI",
+        "LDAP"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q015",
       "question": "What is the CVSS score for CVE-2014-0160?",
-      "must_contain_cve_ids": ["CVE-2014-0160"],
-      "must_contain_terms": ["Heartbleed"],
-      "notes": "CVE lookup — Heartbleed"
+      "must_contain_cve_ids": [
+        "CVE-2014-0160"
+      ],
+      "must_contain_terms": [
+        "Heartbleed"
+      ],
+      "notes": "CVE lookup — Heartbleed",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q016",
       "question": "How does Heartbleed allow memory disclosure from OpenSSL?",
-      "must_contain_cve_ids": ["CVE-2014-0160"],
-      "must_contain_terms": ["heartbeat", "memcpy"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2014-0160"
+      ],
+      "must_contain_terms": [
+        "heartbeat",
+        "memcpy"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q017",
       "question": "Which CVE is known as Heartbleed and what library does it affect?",
-      "must_contain_cve_ids": ["CVE-2014-0160"],
-      "must_contain_terms": ["OpenSSL"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2014-0160"
+      ],
+      "must_contain_terms": [
+        "OpenSSL"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q018",
       "question": "What is Shellshock and which CVE describes the Bash code injection flaw?",
-      "must_contain_cve_ids": ["CVE-2014-6271"],
-      "must_contain_terms": ["Bash", "environment variable"],
-      "notes": "CVE lookup — Shellshock"
+      "must_contain_cve_ids": [
+        "CVE-2014-6271"
+      ],
+      "must_contain_terms": [
+        "Bash",
+        "environment variable"
+      ],
+      "notes": "CVE lookup — Shellshock",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q019",
       "question": "How does CVE-2014-6271 allow exploitation via HTTP CGI requests?",
-      "must_contain_cve_ids": ["CVE-2014-6271"],
-      "must_contain_terms": ["CGI", "HTTP"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2014-6271"
+      ],
+      "must_contain_terms": [
+        "CGI",
+        "HTTP"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q020",
       "question": "Which CVE tracks the SMBv1 integer overflow exploited by WannaCry?",
-      "must_contain_cve_ids": ["CVE-2017-0144"],
-      "must_contain_terms": ["EternalBlue", "SMB"],
-      "notes": "CVE lookup — EternalBlue"
+      "must_contain_cve_ids": [
+        "CVE-2017-0144"
+      ],
+      "must_contain_terms": [
+        "EternalBlue",
+        "SMB"
+      ],
+      "notes": "CVE lookup — EternalBlue",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q021",
       "question": "What Microsoft patch fixes CVE-2017-0144?",
-      "must_contain_cve_ids": ["CVE-2017-0144"],
-      "must_contain_terms": ["MS17-010"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2017-0144"
+      ],
+      "must_contain_terms": [
+        "MS17-010"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q022",
       "question": "Which ransomware worm used EternalBlue to spread globally in 2017?",
-      "must_contain_cve_ids": ["CVE-2017-0144"],
-      "must_contain_terms": ["WannaCry"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2017-0144"
+      ],
+      "must_contain_terms": [
+        "WannaCry"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q023",
       "question": "What CVE describes the Apache Struts OGNL injection exploited in the Equifax breach?",
-      "must_contain_cve_ids": ["CVE-2017-5638"],
-      "must_contain_terms": ["Struts", "OGNL"],
-      "notes": "CVE lookup — Struts"
+      "must_contain_cve_ids": [
+        "CVE-2017-5638"
+      ],
+      "must_contain_terms": [
+        "Struts",
+        "OGNL"
+      ],
+      "notes": "CVE lookup — Struts",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q024",
       "question": "How does CVE-2017-5638 inject OGNL through the Content-Type header?",
-      "must_contain_cve_ids": ["CVE-2017-5638"],
-      "must_contain_terms": ["Content-Type", "multipart"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2017-5638"
+      ],
+      "must_contain_terms": [
+        "Content-Type",
+        "multipart"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q025",
       "question": "Which data breach exploited CVE-2017-5638 against a credit bureau?",
-      "must_contain_cve_ids": ["CVE-2017-5638"],
-      "must_contain_terms": ["Equifax"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2017-5638"
+      ],
+      "must_contain_terms": [
+        "Equifax"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q026",
       "question": "What CVE is the Pulse Secure VPN arbitrary file read flaw?",
-      "must_contain_cve_ids": ["CVE-2019-11510"],
-      "must_contain_terms": ["Pulse", "path traversal"],
-      "notes": "CVE lookup — Pulse VPN"
+      "must_contain_cve_ids": [
+        "CVE-2019-11510"
+      ],
+      "must_contain_terms": [
+        "Pulse",
+        "path traversal"
+      ],
+      "notes": "CVE lookup — Pulse VPN",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q027",
       "question": "How does CVE-2019-11510 allow unauthenticated credential theft from a VPN appliance?",
-      "must_contain_cve_ids": ["CVE-2019-11510"],
-      "must_contain_terms": ["credential", "pre-auth"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2019-11510"
+      ],
+      "must_contain_terms": [
+        "credential",
+        "pre-auth"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q028",
       "question": "What CVE describes the Windows CryptoAPI ECC certificate spoofing flaw?",
-      "must_contain_cve_ids": ["CVE-2020-0601"],
-      "must_contain_terms": ["CurveBall", "certificate"],
-      "notes": "CVE lookup — CurveBall"
+      "must_contain_cve_ids": [
+        "CVE-2020-0601"
+      ],
+      "must_contain_terms": [
+        "CurveBall",
+        "certificate"
+      ],
+      "notes": "CVE lookup — CurveBall",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q029",
       "question": "Which agency reported CVE-2020-0601 to Microsoft?",
-      "must_contain_cve_ids": ["CVE-2020-0601"],
-      "must_contain_terms": ["NSA"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2020-0601"
+      ],
+      "must_contain_terms": [
+        "NSA"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q030",
       "question": "What CVE describes the Zerologon Netlogon privilege escalation?",
-      "must_contain_cve_ids": ["CVE-2020-1472"],
-      "must_contain_terms": ["Zerologon", "Netlogon"],
-      "notes": "CVE lookup — Zerologon"
+      "must_contain_cve_ids": [
+        "CVE-2020-1472"
+      ],
+      "must_contain_terms": [
+        "Zerologon",
+        "Netlogon"
+      ],
+      "notes": "CVE lookup — Zerologon",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q031",
       "question": "How does the AES-CFB8 flaw in CVE-2020-1472 enable domain compromise?",
-      "must_contain_cve_ids": ["CVE-2020-1472"],
-      "must_contain_terms": ["AES-CFB8", "domain controller"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2020-1472"
+      ],
+      "must_contain_terms": [
+        "AES-CFB8",
+        "domain controller"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q032",
       "question": "What CVE is the Exchange ProxyLogon SSRF vulnerability?",
-      "must_contain_cve_ids": ["CVE-2021-26855"],
-      "must_contain_terms": ["Exchange", "SSRF"],
-      "notes": "CVE lookup — ProxyLogon"
+      "must_contain_cve_ids": [
+        "CVE-2021-26855"
+      ],
+      "must_contain_terms": [
+        "Exchange",
+        "SSRF"
+      ],
+      "notes": "CVE lookup — ProxyLogon",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q033",
       "question": "Which threat actor exploited CVE-2021-26855 as a zero-day?",
-      "must_contain_cve_ids": ["CVE-2021-26855"],
-      "must_contain_terms": ["HAFNIUM"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2021-26855"
+      ],
+      "must_contain_terms": [
+        "HAFNIUM"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "recency_seeking"
+      }
     },
     {
       "id": "q034",
       "question": "What CVE describes the PrintNightmare Windows Print Spooler RCE?",
-      "must_contain_cve_ids": ["CVE-2021-34527"],
-      "must_contain_terms": ["Print Spooler", "RpcAddPrinterDriver"],
-      "notes": "CVE lookup — PrintNightmare"
+      "must_contain_cve_ids": [
+        "CVE-2021-34527"
+      ],
+      "must_contain_terms": [
+        "Print Spooler",
+        "RpcAddPrinterDriver"
+      ],
+      "notes": "CVE lookup — PrintNightmare",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q035",
       "question": "How does PrintNightmare allow domain users to execute code as SYSTEM?",
-      "must_contain_cve_ids": ["CVE-2021-34527"],
-      "must_contain_terms": ["DLL", "SYSTEM"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2021-34527"
+      ],
+      "must_contain_terms": [
+        "DLL",
+        "SYSTEM"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q036",
       "question": "What CVE tracks the GitLab ExifTool RCE via image upload?",
-      "must_contain_cve_ids": ["CVE-2021-22205"],
-      "must_contain_terms": ["GitLab", "ExifTool"],
-      "notes": "CVE lookup — GitLab"
+      "must_contain_cve_ids": [
+        "CVE-2021-22205"
+      ],
+      "must_contain_terms": [
+        "GitLab",
+        "ExifTool"
+      ],
+      "notes": "CVE lookup — GitLab",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q037",
       "question": "How does CVE-2021-22205 exploit DjVu file parsing for code execution?",
-      "must_contain_cve_ids": ["CVE-2021-22205"],
-      "must_contain_terms": ["DjVu", "Perl"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2021-22205"
+      ],
+      "must_contain_terms": [
+        "DjVu",
+        "Perl"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q038",
       "question": "What CVE describes the Linux kernel Dirty Pipe privilege escalation?",
-      "must_contain_cve_ids": ["CVE-2022-0847"],
-      "must_contain_terms": ["Dirty Pipe", "pipe"],
-      "notes": "CVE lookup — Dirty Pipe"
+      "must_contain_cve_ids": [
+        "CVE-2022-0847"
+      ],
+      "must_contain_terms": [
+        "Dirty Pipe",
+        "pipe"
+      ],
+      "notes": "CVE lookup — Dirty Pipe",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q039",
       "question": "How does CVE-2022-0847 allow overwriting read-only files on Linux?",
-      "must_contain_cve_ids": ["CVE-2022-0847"],
-      "must_contain_terms": ["PIPE_BUF_FLAG_CAN_MERGE", "page cache"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2022-0847"
+      ],
+      "must_contain_terms": [
+        "PIPE_BUF_FLAG_CAN_MERGE",
+        "page cache"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q040",
       "question": "What CVE is Spring4Shell and what framework does it affect?",
-      "must_contain_cve_ids": ["CVE-2022-22965"],
-      "must_contain_terms": ["Spring", "ClassLoader"],
-      "notes": "CVE lookup — Spring4Shell"
+      "must_contain_cve_ids": [
+        "CVE-2022-22965"
+      ],
+      "must_contain_terms": [
+        "Spring",
+        "ClassLoader"
+      ],
+      "notes": "CVE lookup — Spring4Shell",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q041",
       "question": "What CVE describes the Follina MSDT RCE exploited via DOCX files?",
-      "must_contain_cve_ids": ["CVE-2022-30190"],
-      "must_contain_terms": ["MSDT", "ms-msdt"],
-      "notes": "CVE lookup — Follina"
+      "must_contain_cve_ids": [
+        "CVE-2022-30190"
+      ],
+      "must_contain_terms": [
+        "MSDT",
+        "ms-msdt"
+      ],
+      "notes": "CVE lookup — Follina",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q042",
       "question": "Which CVE is the Atlassian Confluence OGNL injection pre-auth RCE?",
-      "must_contain_cve_ids": ["CVE-2022-26134"],
-      "must_contain_terms": ["Confluence", "OGNL"],
-      "notes": "CVE lookup — Confluence"
+      "must_contain_cve_ids": [
+        "CVE-2022-26134"
+      ],
+      "must_contain_terms": [
+        "Confluence",
+        "OGNL"
+      ],
+      "notes": "CVE lookup — Confluence",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q043",
       "question": "What CVE describes the Outlook zero-click NTLM credential leak?",
-      "must_contain_cve_ids": ["CVE-2023-23397"],
-      "must_contain_terms": ["Outlook", "NTLM"],
-      "notes": "CVE lookup — Outlook NTLM"
+      "must_contain_cve_ids": [
+        "CVE-2023-23397"
+      ],
+      "must_contain_terms": [
+        "Outlook",
+        "NTLM"
+      ],
+      "notes": "CVE lookup — Outlook NTLM",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q044",
       "question": "How does CVE-2023-23397 steal credentials without user interaction?",
-      "must_contain_cve_ids": ["CVE-2023-23397"],
-      "must_contain_terms": ["UNC", "calendar"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2023-23397"
+      ],
+      "must_contain_terms": [
+        "UNC",
+        "calendar"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q045",
       "question": "What CVE is the MOVEit Transfer SQL injection exploited by Cl0p?",
-      "must_contain_cve_ids": ["CVE-2023-34362"],
-      "must_contain_terms": ["MOVEit", "SQL injection"],
-      "notes": "CVE lookup — MOVEit"
+      "must_contain_cve_ids": [
+        "CVE-2023-34362"
+      ],
+      "must_contain_terms": [
+        "MOVEit",
+        "SQL injection"
+      ],
+      "notes": "CVE lookup — MOVEit",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q046",
       "question": "What custom webshell did the Cl0p group deploy via CVE-2023-34362?",
-      "must_contain_cve_ids": ["CVE-2023-34362"],
-      "must_contain_terms": ["LEMURLOOT"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2023-34362"
+      ],
+      "must_contain_terms": [
+        "LEMURLOOT"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q047",
       "question": "What CVE describes the libwebp heap buffer overflow in WebP decoding?",
-      "must_contain_cve_ids": ["CVE-2023-4863"],
-      "must_contain_terms": ["libwebp", "Huffman"],
-      "notes": "CVE lookup — libwebp"
+      "must_contain_cve_ids": [
+        "CVE-2023-4863"
+      ],
+      "must_contain_terms": [
+        "libwebp",
+        "Huffman"
+      ],
+      "notes": "CVE lookup — libwebp",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q048",
       "question": "Which CVE describes the xz-utils supply chain backdoor in liblzma?",
-      "must_contain_cve_ids": ["CVE-2024-3094"],
-      "must_contain_terms": ["xz-utils", "liblzma"],
-      "notes": "CVE lookup — xz-utils"
+      "must_contain_cve_ids": [
+        "CVE-2024-3094"
+      ],
+      "must_contain_terms": [
+        "xz-utils",
+        "liblzma"
+      ],
+      "notes": "CVE lookup — xz-utils",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q049",
       "question": "How was the CVE-2024-3094 backdoor hidden in the xz release tarball?",
-      "must_contain_cve_ids": ["CVE-2024-3094"],
-      "must_contain_terms": ["build system", "sshd"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2024-3094"
+      ],
+      "must_contain_terms": [
+        "build system",
+        "sshd"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q050",
       "question": "What CVE is regreSSHion and which daemon does it affect?",
-      "must_contain_cve_ids": ["CVE-2024-6387"],
-      "must_contain_terms": ["regreSSHion", "OpenSSH"],
-      "notes": "CVE lookup — regreSSHion"
+      "must_contain_cve_ids": [
+        "CVE-2024-6387"
+      ],
+      "must_contain_terms": [
+        "regreSSHion",
+        "OpenSSH"
+      ],
+      "notes": "CVE lookup — regreSSHion",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q051",
       "question": "How does the signal handler race condition in CVE-2024-6387 lead to RCE?",
-      "must_contain_cve_ids": ["CVE-2024-6387"],
-      "must_contain_terms": ["SIGALRM", "race condition"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2024-6387"
+      ],
+      "must_contain_terms": [
+        "SIGALRM",
+        "race condition"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q052",
       "question": "What does CVE-2022-22965 (Spring4Shell) use to write a webshell to disk?",
-      "must_contain_cve_ids": ["CVE-2022-22965"],
-      "must_contain_terms": ["Tomcat", "access log"],
-      "notes": null
+      "must_contain_cve_ids": [
+        "CVE-2022-22965"
+      ],
+      "must_contain_terms": [
+        "Tomcat",
+        "access log"
+      ],
+      "notes": null,
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q053",
       "question": "What is path traversal and which CWE describes it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-22", "path traversal"],
-      "notes": "Concept lookup — CWE-22"
+      "must_contain_terms": [
+        "CWE-22",
+        "path traversal"
+      ],
+      "notes": "Concept lookup — CWE-22",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q054",
       "question": "How should an application securely validate file paths to prevent directory traversal?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["canonical", "allowlist"],
-      "notes": "Concept lookup — path traversal mitigation"
+      "must_contain_terms": [
+        "canonical",
+        "allowlist"
+      ],
+      "notes": "Concept lookup — path traversal mitigation",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q055",
       "question": "What is OS command injection and which CWE does it fall under?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-78", "command injection"],
-      "notes": "Concept lookup — CWE-78"
+      "must_contain_terms": [
+        "CWE-78",
+        "command injection"
+      ],
+      "notes": "Concept lookup — CWE-78",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q056",
       "question": "How does shell=True in Python subprocess enable command injection?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["shell=True", "subprocess"],
-      "notes": "Concept lookup — Python cmdi"
+      "must_contain_terms": [
+        "shell=True",
+        "subprocess"
+      ],
+      "notes": "Concept lookup — Python cmdi",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q057",
       "question": "What is Cross-Site Scripting and what CWE classifies it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-79", "XSS"],
-      "notes": "Concept lookup — CWE-79"
+      "must_contain_terms": [
+        "CWE-79",
+        "XSS"
+      ],
+      "notes": "Concept lookup — CWE-79",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q058",
       "question": "What are the three main types of XSS and how do they differ?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["Reflected XSS", "Stored XSS", "DOM-based XSS"],
-      "notes": "Concept lookup — XSS variants"
+      "must_contain_terms": [
+        "Reflected XSS",
+        "Stored XSS",
+        "DOM-based XSS"
+      ],
+      "notes": "Concept lookup — XSS variants",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q059",
       "question": "How does Content Security Policy mitigate XSS attacks?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["Content Security Policy", "inline"],
-      "notes": "Concept lookup — CSP"
+      "must_contain_terms": [
+        "Content Security Policy",
+        "inline"
+      ],
+      "notes": "Concept lookup — CSP",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q060",
       "question": "What is SQL injection and which CWE does it map to?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-89", "SQL injection"],
-      "notes": "Concept lookup — CWE-89"
+      "must_contain_terms": [
+        "CWE-89",
+        "SQL injection"
+      ],
+      "notes": "Concept lookup — CWE-89",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q061",
       "question": "How do parameterized queries prevent SQL injection?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["parameterized", "prepared statement"],
-      "notes": "Concept lookup — SQLi mitigation"
+      "must_contain_terms": [
+        "parameterized",
+        "prepared statement"
+      ],
+      "notes": "Concept lookup — SQLi mitigation",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q062",
       "question": "What is time-based blind SQL injection and how is it detected?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["blind", "SLEEP"],
-      "notes": "Concept lookup — blind SQLi"
+      "must_contain_terms": [
+        "blind",
+        "SLEEP"
+      ],
+      "notes": "Concept lookup — blind SQLi",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q063",
       "question": "What is XXE injection and which CWE describes it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-611", "XXE"],
-      "notes": "Concept lookup — CWE-611"
+      "must_contain_terms": [
+        "CWE-611",
+        "XXE"
+      ],
+      "notes": "Concept lookup — CWE-611",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q064",
       "question": "How can XXE cause SSRF through HTTP entity references?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["external entity", "SSRF"],
-      "notes": "Concept lookup — XXE SSRF"
+      "must_contain_terms": [
+        "external entity",
+        "SSRF"
+      ],
+      "notes": "Concept lookup — XXE SSRF",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q065",
       "question": "How should XML parsers be hardened to prevent XXE?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["DTD", "entity resolution"],
-      "notes": "Concept lookup — XXE mitigation"
+      "must_contain_terms": [
+        "DTD",
+        "entity resolution"
+      ],
+      "notes": "Concept lookup — XXE mitigation",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q066",
       "question": "What is use-after-free and which CWE covers it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-416", "use-after-free"],
-      "notes": "Concept lookup — CWE-416"
+      "must_contain_terms": [
+        "CWE-416",
+        "use-after-free"
+      ],
+      "notes": "Concept lookup — CWE-416",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q067",
       "question": "How is use-after-free exploited in browser JavaScript engines?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["heap", "vtable"],
-      "notes": "Concept lookup — UAF exploitation"
+      "must_contain_terms": [
+        "heap",
+        "vtable"
+      ],
+      "notes": "Concept lookup — UAF exploitation",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q068",
       "question": "What is an out-of-bounds write vulnerability and which CWE is it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-787", "out-of-bounds write"],
-      "notes": "Concept lookup — CWE-787"
+      "must_contain_terms": [
+        "CWE-787",
+        "out-of-bounds write"
+      ],
+      "notes": "Concept lookup — CWE-787",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q069",
       "question": "How do stack canaries mitigate stack-based buffer overflows?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["stack canaries", "return address"],
-      "notes": "Concept lookup — stack protection"
+      "must_contain_terms": [
+        "stack canaries",
+        "return address"
+      ],
+      "notes": "Concept lookup — stack protection",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q070",
       "question": "What does CWE-287 describe and what are common authentication bypass patterns?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-287", "authentication"],
-      "notes": "Concept lookup — CWE-287"
+      "must_contain_terms": [
+        "CWE-287",
+        "authentication"
+      ],
+      "notes": "Concept lookup — CWE-287",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q071",
       "question": "How does JWT algorithm confusion enable authentication bypass?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["JWT", "algorithm confusion"],
-      "notes": "Concept lookup — JWT bypass"
+      "must_contain_terms": [
+        "JWT",
+        "algorithm confusion"
+      ],
+      "notes": "Concept lookup — JWT bypass",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q072",
       "question": "What is CSRF and which CWE describes it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-352", "CSRF"],
-      "notes": "Concept lookup — CWE-352"
+      "must_contain_terms": [
+        "CWE-352",
+        "CSRF"
+      ],
+      "notes": "Concept lookup — CWE-352",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q073",
       "question": "How does the SameSite cookie attribute prevent CSRF attacks?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["SameSite", "cross-site"],
-      "notes": "Concept lookup — CSRF mitigation"
+      "must_contain_terms": [
+        "SameSite",
+        "cross-site"
+      ],
+      "notes": "Concept lookup — CSRF mitigation",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q074",
       "question": "What is an integer overflow vulnerability and which CWE covers it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-190", "integer overflow"],
-      "notes": "Concept lookup — CWE-190"
+      "must_contain_terms": [
+        "CWE-190",
+        "integer overflow"
+      ],
+      "notes": "Concept lookup — CWE-190",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q075",
       "question": "How can an integer overflow in a malloc size calculation lead to heap overflow?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["malloc", "heap overflow"],
-      "notes": "Concept lookup — integer overflow exploitation"
+      "must_contain_terms": [
+        "malloc",
+        "heap overflow"
+      ],
+      "notes": "Concept lookup — integer overflow exploitation",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q076",
       "question": "What are hardcoded credentials and which CWE classifies them?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-798", "hardcoded"],
-      "notes": "Concept lookup — CWE-798"
+      "must_contain_terms": [
+        "CWE-798",
+        "hardcoded"
+      ],
+      "notes": "Concept lookup — CWE-798",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q077",
       "question": "What tools detect hardcoded secrets in source code repositories?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["Gitleaks", "TruffleHog"],
-      "notes": "Concept lookup — secret scanning"
+      "must_contain_terms": [
+        "Gitleaks",
+        "TruffleHog"
+      ],
+      "notes": "Concept lookup — secret scanning",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q078",
       "question": "What is unrestricted file upload and which CWE describes it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-434", "file upload"],
-      "notes": "Concept lookup — CWE-434"
+      "must_contain_terms": [
+        "CWE-434",
+        "file upload"
+      ],
+      "notes": "Concept lookup — CWE-434",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q079",
       "question": "How can an attacker bypass file type validation using image polyglots?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["polyglot", "magic bytes"],
-      "notes": "Concept lookup — file upload bypass"
+      "must_contain_terms": [
+        "polyglot",
+        "magic bytes"
+      ],
+      "notes": "Concept lookup — file upload bypass",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q080",
       "question": "What is improper certificate validation and which CWE covers it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-295", "certificate validation"],
-      "notes": "Concept lookup — CWE-295"
+      "must_contain_terms": [
+        "CWE-295",
+        "certificate validation"
+      ],
+      "notes": "Concept lookup — CWE-295",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q081",
       "question": "How does server-side template injection differ from XSS?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["template injection", "SSTI"],
-      "notes": "Concept lookup — SSTI"
+      "must_contain_terms": [
+        "template injection",
+        "SSTI"
+      ],
+      "notes": "Concept lookup — SSTI",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q082",
       "question": "What is a null pointer dereference and which CWE classifies it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-476", "null pointer"],
-      "notes": "Concept lookup — CWE-476"
+      "must_contain_terms": [
+        "CWE-476",
+        "null pointer"
+      ],
+      "notes": "Concept lookup — CWE-476",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q083",
       "question": "What is an out-of-bounds read vulnerability and which CWE is it?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["CWE-125", "out-of-bounds read"],
-      "notes": "Concept lookup — CWE-125"
+      "must_contain_terms": [
+        "CWE-125",
+        "out-of-bounds read"
+      ],
+      "notes": "Concept lookup — CWE-125",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q084",
       "question": "How does an out-of-bounds read help break ASLR in multi-stage exploits?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["ASLR", "information disclosure"],
-      "notes": "Concept lookup — info leak primitive"
+      "must_contain_terms": [
+        "ASLR",
+        "information disclosure"
+      ],
+      "notes": "Concept lookup — info leak primitive",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q085",
       "question": "What is the impact of the Log4Shell vulnerability?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["remote code execution", "JNDI"],
-      "notes": "Pronoun-resolution — contextual doc 40 has no CVE ID in body"
+      "must_contain_terms": [
+        "remote code execution",
+        "JNDI"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 40 has no CVE ID in body",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q086",
       "question": "What does the Log4j logging library do when it processes a JNDI lookup expression?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["lookup", "outbound connection"],
-      "notes": "Pronoun-resolution — contextual doc 40"
+      "must_contain_terms": [
+        "lookup",
+        "outbound connection"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 40",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q087",
       "question": "How does the Heartbleed flaw allow reading server memory without leaving log traces?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["heartbeat", "server memory"],
-      "notes": "Pronoun-resolution — contextual doc 41"
+      "must_contain_terms": [
+        "heartbeat",
+        "server memory"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 41",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q088",
       "question": "What does the TLS heartbeat memory leak vulnerability expose about private keys?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["private key", "heap"],
-      "notes": "Pronoun-resolution — contextual doc 41"
+      "must_contain_terms": [
+        "private key",
+        "heap"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 41",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q089",
       "question": "How did the SMBv1 exploit spread laterally through networks in 2017 without user interaction?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["worm", "port 445"],
-      "notes": "Pronoun-resolution — contextual doc 42"
+      "must_contain_terms": [
+        "worm",
+        "port 445"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 42",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q090",
       "question": "What is the impact of the Netlogon cryptographic bypass on Active Directory domains?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["domain controller", "credential dump"],
-      "notes": "Pronoun-resolution — contextual doc 43"
+      "must_contain_terms": [
+        "domain controller",
+        "credential dump"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 43",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q091",
       "question": "How does the Print Spooler service flaw allow lateral movement in enterprise networks?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["SYSTEM", "network share"],
-      "notes": "Pronoun-resolution — contextual doc 44"
+      "must_contain_terms": [
+        "SYSTEM",
+        "network share"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 44",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q092",
       "question": "What made the MOVEit file transfer exploitation unusual for a ransomware campaign?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["SQL injection", "webshell"],
-      "notes": "Pronoun-resolution — contextual doc 45"
+      "must_contain_terms": [
+        "SQL injection",
+        "webshell"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 45",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q093",
       "question": "Why did the Follina vulnerability bypass macro-based defenses in Office documents?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["URI handler", "macro"],
-      "notes": "Pronoun-resolution — contextual doc 46"
+      "must_contain_terms": [
+        "URI handler",
+        "macro"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 46",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q094",
       "question": "How does the Exchange Server SSRF chain lead to unauthenticated code execution?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["SSRF", "webshell"],
-      "notes": "Pronoun-resolution — contextual doc 47"
+      "must_contain_terms": [
+        "SSRF",
+        "webshell"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 47",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q095",
       "question": "What made the Confluence expression injection particularly dangerous for internet-exposed instances?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["expression", "unauthenticated"],
-      "notes": "Pronoun-resolution — contextual doc 48"
+      "must_contain_terms": [
+        "expression",
+        "unauthenticated"
+      ],
+      "notes": "Pronoun-resolution — contextual doc 48",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q096",
       "question": "What is Zip Slip and how does it relate to the unrestricted file upload weakness?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["Zip Slip", "path traversal"],
-      "notes": "Concept lookup — Zip Slip"
+      "must_contain_terms": [
+        "Zip Slip",
+        "path traversal"
+      ],
+      "notes": "Concept lookup — Zip Slip",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q097",
       "question": "What is NTLM relay and how does CVE-2023-23397 enable it without user interaction?",
-      "must_contain_cve_ids": ["CVE-2023-23397"],
-      "must_contain_terms": ["NTLM relay", "UNC"],
-      "notes": "CVE + concept"
+      "must_contain_cve_ids": [
+        "CVE-2023-23397"
+      ],
+      "must_contain_terms": [
+        "NTLM relay",
+        "UNC"
+      ],
+      "notes": "CVE + concept",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q098",
       "question": "How does the Dirty Pipe exploit allow an unprivileged user to overwrite SUID binaries?",
-      "must_contain_cve_ids": ["CVE-2022-0847"],
-      "must_contain_terms": ["SUID", "splice"],
-      "notes": "CVE + mechanism"
+      "must_contain_cve_ids": [
+        "CVE-2022-0847"
+      ],
+      "must_contain_terms": [
+        "SUID",
+        "splice"
+      ],
+      "notes": "CVE + mechanism",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q099",
       "question": "Which CVE describes the GitLab image upload RCE and what file type was weaponized?",
-      "must_contain_cve_ids": ["CVE-2021-22205"],
-      "must_contain_terms": ["DjVu", "unauthenticated"],
-      "notes": "CVE lookup"
+      "must_contain_cve_ids": [
+        "CVE-2021-22205"
+      ],
+      "must_contain_terms": [
+        "DjVu",
+        "unauthenticated"
+      ],
+      "notes": "CVE lookup",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q100",
       "question": "What mechanism did the xz-utils backdoor use to intercept sshd authentication?",
-      "must_contain_cve_ids": ["CVE-2024-3094"],
-      "must_contain_terms": ["IFUNC", "Ed448"],
-      "notes": "CVE technical detail"
+      "must_contain_cve_ids": [
+        "CVE-2024-3094"
+      ],
+      "must_contain_terms": [
+        "IFUNC",
+        "Ed448"
+      ],
+      "notes": "CVE technical detail",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q101",
       "question": "How does Heartbleed differ from a typical authentication bypass in terms of attack prerequisites?",
-      "must_contain_cve_ids": ["CVE-2014-0160"],
-      "must_contain_terms": ["unauthenticated", "TLS"],
-      "notes": "CVE comparison"
+      "must_contain_cve_ids": [
+        "CVE-2014-0160"
+      ],
+      "must_contain_terms": [
+        "unauthenticated",
+        "TLS"
+      ],
+      "notes": "CVE comparison",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q102",
       "question": "What log4j JVM startup flag provides an interim mitigation for Log4Shell without upgrading?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["formatMsgNoLookups", "JVM"],
-      "notes": "CVE mitigation detail"
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "formatMsgNoLookups",
+        "JVM"
+      ],
+      "notes": "CVE mitigation detail",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q103",
       "question": "How does the Netlogon all-zero IV flaw manifest as a probability-based attack?",
-      "must_contain_cve_ids": ["CVE-2020-1472"],
-      "must_contain_terms": ["initialization vector", "256"],
-      "notes": "CVE cryptographic detail"
+      "must_contain_cve_ids": [
+        "CVE-2020-1472"
+      ],
+      "must_contain_terms": [
+        "initialization vector",
+        "256"
+      ],
+      "notes": "CVE cryptographic detail",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q104",
       "question": "What CWE underlies the Spring4Shell CVE-2022-22965 data binding attack?",
-      "must_contain_cve_ids": ["CVE-2022-22965"],
-      "must_contain_terms": ["ClassLoader", "data binding"],
-      "notes": "CVE + CWE mapping"
+      "must_contain_cve_ids": [
+        "CVE-2022-22965"
+      ],
+      "must_contain_terms": [
+        "ClassLoader",
+        "data binding"
+      ],
+      "notes": "CVE + CWE mapping",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q105",
       "question": "What is the Billion Laughs attack and how does it relate to XXE?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["entity expansion", "denial of service"],
-      "notes": "Concept lookup — XML bomb / XXE DoS"
+      "must_contain_terms": [
+        "entity expansion",
+        "denial of service"
+      ],
+      "notes": "Concept lookup — XML bomb / XXE DoS",
+      "axes": {
+        "style": "mixed",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "hygiene-001",
       "question": "What is the impact of the Log4Shell vulnerability CVE-2021-44228?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["JNDI", "remote code execution"],
-      "notes": "Log4Shell should appear with kev_flag=true when KEV catalog is used"
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "JNDI",
+        "remote code execution"
+      ],
+      "notes": "Log4Shell should appear with kev_flag=true when KEV catalog is used",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "hygiene-002",
       "question": "Describe the HTTP/2 Rapid Reset Attack CVE-2023-44487.",
-      "must_contain_cve_ids": ["CVE-2023-44487"],
-      "must_contain_terms": ["denial of service"],
-      "notes": "Modified status CVE — must not be filtered"
+      "must_contain_cve_ids": [
+        "CVE-2023-44487"
+      ],
+      "must_contain_terms": [
+        "denial of service"
+      ],
+      "notes": "Modified status CVE — must not be filtered",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "hygiene-003",
       "question": "What is the Spring4Shell vulnerability?",
-      "must_contain_cve_ids": ["CVE-2022-22965"],
-      "must_contain_terms": ["Spring Framework", "remote code execution"],
-      "notes": "CRITICAL severity — verify CVSS metadata round-trips"
+      "must_contain_cve_ids": [
+        "CVE-2022-22965"
+      ],
+      "must_contain_terms": [
+        "Spring Framework",
+        "remote code execution"
+      ],
+      "notes": "CRITICAL severity — verify CVSS metadata round-trips",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "hygiene-006",
       "question": "Which Apache products have critical vulnerabilities?",
-      "must_contain_cve_ids": ["CVE-2021-44228"],
-      "must_contain_terms": ["apache", "critical"],
-      "notes": "Vendor facet via cpe_vendor=apache metadata"
+      "must_contain_cve_ids": [
+        "CVE-2021-44228"
+      ],
+      "must_contain_terms": [
+        "apache",
+        "critical"
+      ],
+      "notes": "Vendor facet via cpe_vendor=apache metadata",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "hygiene-007",
       "question": "What KEV vulnerabilities affect VMware Spring Framework?",
-      "must_contain_cve_ids": ["CVE-2022-22965"],
-      "must_contain_terms": ["Spring"],
-      "notes": "kev_flag test — Spring4Shell is in the test KEV minimal catalog fixture"
+      "must_contain_cve_ids": [
+        "CVE-2022-22965"
+      ],
+      "must_contain_terms": [
+        "Spring"
+      ],
+      "notes": "kev_flag test — Spring4Shell is in the test KEV minimal catalog fixture",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "cwe-hier-001",
       "question": "Show me SQL injection (CWE-89) findings in our codebase.",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["Hibernate", "HQL"],
-      "notes": "CWE hierarchy — parent CWE-89 in query, expected doc tagged with child CWE-564 (Hibernate Injection). Without --cwe-expand, the Hibernate finding is invisible."
+      "must_contain_terms": [
+        "Hibernate",
+        "HQL"
+      ],
+      "notes": "CWE hierarchy — parent CWE-89 in query, expected doc tagged with child CWE-564 (Hibernate Injection). Without --cwe-expand, the Hibernate finding is invisible.",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "cwe-hier-002",
       "question": "Which cross-site scripting (CWE-79) issues are open?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["DOM", "stored"],
-      "notes": "CWE hierarchy — parent CWE-79 in query, expected docs tagged with children CWE-80 (Basic XSS) and CWE-81 (Script in error message). --cwe-expand required for recall."
+      "must_contain_terms": [
+        "DOM",
+        "stored"
+      ],
+      "notes": "CWE hierarchy — parent CWE-79 in query, expected docs tagged with children CWE-80 (Basic XSS) and CWE-81 (Script in error message). --cwe-expand required for recall.",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "cwe-hier-003",
       "question": "Any path traversal (CWE-22) vulnerabilities in the upload handler?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["..", "relative"],
-      "notes": "CWE hierarchy — parent CWE-22 in query, expected doc tagged with child CWE-23 (Relative Path Traversal)."
+      "must_contain_terms": [
+        "..",
+        "relative"
+      ],
+      "notes": "CWE hierarchy — parent CWE-22 in query, expected doc tagged with child CWE-23 (Relative Path Traversal).",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "cwe-hier-004",
       "question": "What command injection (CWE-77) findings should I review first?",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["shell", "argv"],
-      "notes": "CWE hierarchy — parent CWE-77 in query, expected doc tagged with child CWE-78 (OS Command Injection)."
+      "must_contain_terms": [
+        "shell",
+        "argv"
+      ],
+      "notes": "CWE hierarchy — parent CWE-77 in query, expected doc tagged with child CWE-78 (OS Command Injection).",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "neutral"
+      }
     },
     {
       "id": "q-temporal-recency-1",
       "question": "What is the most recent major MOVEit transfer vulnerability?",
-      "must_contain_cve_ids": ["CVE-2023-34362"],
-      "must_contain_terms": ["MOVEit", "SQL injection"],
-      "notes": "temporal-recency — should favor recent disclosures"
+      "must_contain_cve_ids": [
+        "CVE-2023-34362"
+      ],
+      "must_contain_terms": [
+        "MOVEit",
+        "SQL injection"
+      ],
+      "notes": "temporal-recency — should favor recent disclosures",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "recency_seeking"
+      }
     },
     {
       "id": "q-temporal-recency-2",
       "question": "What is the latest Microsoft Exchange zero-day being exploited in the wild?",
-      "must_contain_cve_ids": ["CVE-2021-26855"],
-      "must_contain_terms": ["ProxyLogon", "Exchange"],
-      "notes": "temporal-recency — wording prefers newest Exchange CVE present in corpus"
+      "must_contain_cve_ids": [
+        "CVE-2021-26855"
+      ],
+      "must_contain_terms": [
+        "ProxyLogon",
+        "Exchange"
+      ],
+      "notes": "temporal-recency — wording prefers newest Exchange CVE present in corpus",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "recency_seeking"
+      }
     },
     {
       "id": "q-temporal-recency-3",
       "question": "Show me recent Confluence OGNL injection advisories",
       "must_contain_cve_ids": [],
-      "must_contain_terms": ["Confluence", "OGNL"],
-      "notes": "temporal-recency — open-ended, prefers newer Confluence entries"
+      "must_contain_terms": [
+        "Confluence",
+        "OGNL"
+      ],
+      "notes": "temporal-recency — open-ended, prefers newer Confluence entries",
+      "axes": {
+        "style": "conceptual",
+        "temporal_intent": "recency_seeking"
+      }
     },
     {
       "id": "q-temporal-historical-1",
       "question": "Describe the Heartbleed OpenSSL memory disclosure bug from 2014.",
-      "must_contain_cve_ids": ["CVE-2014-0160"],
-      "must_contain_terms": ["Heartbleed", "OpenSSL"],
-      "notes": "temporal-historical — specific older CVE by name"
+      "must_contain_cve_ids": [
+        "CVE-2014-0160"
+      ],
+      "must_contain_terms": [
+        "Heartbleed",
+        "OpenSSL"
+      ],
+      "notes": "temporal-historical — specific older CVE by name",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q-temporal-historical-2",
       "question": "Explain the 2014 Shellshock bash environment variable bug.",
-      "must_contain_cve_ids": ["CVE-2014-6271"],
-      "must_contain_terms": ["Shellshock", "bash"],
-      "notes": "temporal-historical — specific older CVE by name"
+      "must_contain_cve_ids": [
+        "CVE-2014-6271"
+      ],
+      "must_contain_terms": [
+        "Shellshock",
+        "bash"
+      ],
+      "notes": "temporal-historical — specific older CVE by name",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     },
     {
       "id": "q-temporal-historical-3",
       "question": "What was EternalBlue and how did WannaCry use it?",
-      "must_contain_cve_ids": ["CVE-2017-0144"],
-      "must_contain_terms": ["EternalBlue", "SMB"],
-      "notes": "temporal-historical — specific older CVE by name"
+      "must_contain_cve_ids": [
+        "CVE-2017-0144"
+      ],
+      "must_contain_terms": [
+        "EternalBlue",
+        "SMB"
+      ],
+      "notes": "temporal-historical — specific older CVE by name",
+      "axes": {
+        "style": "identifier",
+        "temporal_intent": "historical"
+      }
     }
   ]
 }

@@ -25,6 +25,41 @@ pub struct GoldSetEntry {
     pub must_contain_terms: Vec<String>,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Per-query axes used for bucketed evaluation metrics. Required on every
+    /// entry — a missing `axes` object is a dataset error.
+    pub axes: Axes,
+}
+
+/// Labelling style of the gold question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Style {
+    /// Question names a concrete identifier (CVE-id, CWE-id, specific product).
+    Identifier,
+    /// Question is framed as a concept/how/why query with no identifier.
+    Conceptual,
+    /// Question names an identifier or product but asks a conceptual question
+    /// about it.
+    Mixed,
+}
+
+/// Temporal intent of the gold question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemporalIntent {
+    /// Question is anchored to a specific past year / older event.
+    Historical,
+    /// Question has no temporal preference.
+    Neutral,
+    /// Question prefers the newest/most recent answer available.
+    RecencySeeking,
+}
+
+/// Per-entry axis labels used for bucketed eval metrics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Axes {
+    pub style: Style,
+    pub temporal_intent: TemporalIntent,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +214,10 @@ mod tests {
                 must_contain_cve_ids: vec!["CVE-2024-12345".into()],
                 must_contain_terms: vec!["libfoo".into()],
                 notes: None,
+                axes: Axes {
+                    style: Style::Identifier,
+                    temporal_intent: TemporalIntent::Neutral,
+                },
             }],
         };
         let json = serde_json::to_string(&gs).unwrap();
@@ -192,7 +231,7 @@ mod tests {
             r#"{
             "version": 1,
             "entries": [
-                {"id": "q001", "question": "x?", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": []}
+                {"id": "q001", "question": "x?", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": [], "axes": {"style": "identifier", "temporal_intent": "neutral"}}
             ]
         }"#,
         );
@@ -207,7 +246,7 @@ mod tests {
             r#"{
             "version": 1,
             "entries": [
-                {"id": "q001", "question": "", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": []}
+                {"id": "q001", "question": "", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": [], "axes": {"style": "identifier", "temporal_intent": "neutral"}}
             ]
         }"#,
         );
@@ -229,8 +268,8 @@ mod tests {
             r#"{
             "version": 1,
             "entries": [
-                {"id": "q001", "question": "a?", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": []},
-                {"id": "q001", "question": "b?", "must_contain_cve_ids": ["CVE-2024-2"], "must_contain_terms": []}
+                {"id": "q001", "question": "a?", "must_contain_cve_ids": ["CVE-2024-1"], "must_contain_terms": [], "axes": {"style": "identifier", "temporal_intent": "neutral"}},
+                {"id": "q001", "question": "b?", "must_contain_cve_ids": ["CVE-2024-2"], "must_contain_terms": [], "axes": {"style": "identifier", "temporal_intent": "neutral"}}
             ]
         }"#,
         );
@@ -246,7 +285,7 @@ mod tests {
             r#"{
             "version": 1,
             "entries": [
-                {"id": "q001", "question": "x?", "must_contain_cve_ids": ["CVE-24-1"], "must_contain_terms": []}
+                {"id": "q001", "question": "x?", "must_contain_cve_ids": ["CVE-24-1"], "must_contain_terms": [], "axes": {"style": "identifier", "temporal_intent": "neutral"}}
             ]
         }"#,
         );
@@ -260,7 +299,7 @@ mod tests {
             r#"{
             "version": 1,
             "entries": [
-                {"id": "q001", "question": "x?", "must_contain_cve_ids": [], "must_contain_terms": []}
+                {"id": "q001", "question": "x?", "must_contain_cve_ids": [], "must_contain_terms": [], "axes": {"style": "identifier", "temporal_intent": "neutral"}}
             ]
         }"#,
         );
@@ -275,6 +314,10 @@ mod tests {
             must_contain_cve_ids: cve.iter().map(|s| s.to_string()).collect(),
             must_contain_terms: terms.iter().map(|s| s.to_string()).collect(),
             notes: None,
+            axes: Axes {
+                style: Style::Identifier,
+                temporal_intent: TemporalIntent::Neutral,
+            },
         }
     }
 
@@ -348,5 +391,95 @@ mod tests {
             "gold set must have at least 100 entries, found {}",
             gs.entries.len()
         );
+        // Every entry must have axes — the field is required and serde will
+        // have already rejected missing ones, but double-check the invariant.
+        for e in &gs.entries {
+            let _ = e.axes; // compile-time check it's present
+        }
+    }
+}
+
+#[cfg(test)]
+mod axes_tests {
+    use super::*;
+
+    #[test]
+    fn parses_axes_from_valid_entry() {
+        let raw = r#"{
+            "version": 1,
+            "entries": [{
+                "id": "q1",
+                "question": "What is CVE-2021-44228?",
+                "must_contain_cve_ids": ["CVE-2021-44228"],
+                "must_contain_terms": [],
+                "axes": { "style": "identifier", "temporal_intent": "neutral" }
+            }]
+        }"#;
+        let gs: GoldSet = serde_json::from_str(raw).unwrap();
+        let e = &gs.entries[0];
+        assert_eq!(e.axes.style, Style::Identifier);
+        assert_eq!(e.axes.temporal_intent, TemporalIntent::Neutral);
+    }
+
+    #[test]
+    fn rejects_entry_missing_axes() {
+        let raw = r#"{
+            "version": 1,
+            "entries": [{
+                "id": "q1",
+                "question": "Q?",
+                "must_contain_terms": ["x"]
+            }]
+        }"#;
+        let err = serde_json::from_str::<GoldSet>(raw).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("axes"),
+            "missing-axes error should mention axes: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_axis_value() {
+        let raw = r#"{
+            "version": 1,
+            "entries": [{
+                "id": "q1",
+                "question": "Q?",
+                "must_contain_terms": ["x"],
+                "axes": { "style": "weird", "temporal_intent": "neutral" }
+            }]
+        }"#;
+        serde_json::from_str::<GoldSet>(raw).unwrap_err();
+    }
+
+    #[test]
+    fn all_temporal_intent_variants_round_trip() {
+        use TemporalIntent::*;
+        for (v, label) in [
+            (Historical, "historical"),
+            (Neutral, "neutral"),
+            (RecencySeeking, "recency_seeking"),
+        ] {
+            let json = serde_json::to_string(&v).unwrap();
+            assert_eq!(json, format!("\"{label}\""));
+            let back: TemporalIntent = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, v);
+        }
+    }
+
+    #[test]
+    fn all_style_variants_round_trip() {
+        use Style::*;
+        for (v, label) in [
+            (Identifier, "identifier"),
+            (Conceptual, "conceptual"),
+            (Mixed, "mixed"),
+        ] {
+            let json = serde_json::to_string(&v).unwrap();
+            assert_eq!(json, format!("\"{label}\""));
+            let back: Style = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, v);
+        }
     }
 }

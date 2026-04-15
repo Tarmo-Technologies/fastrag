@@ -3,7 +3,7 @@
 //! Exercises the union-of-top-k semantics: multi-chunk unions, case-insensitive
 //! term matches, pronoun-resolution miss, and the honest-miss scoring path.
 
-use fastrag_eval::gold_set::{GoldSetEntry, score_entry};
+use fastrag_eval::gold_set::{Axes, GoldSetEntry, Style, TemporalIntent, score_entry};
 
 fn entry(cve: &[&str], terms: &[&str]) -> GoldSetEntry {
     GoldSetEntry {
@@ -12,6 +12,7 @@ fn entry(cve: &[&str], terms: &[&str]) -> GoldSetEntry {
         must_contain_cve_ids: cve.iter().map(|s| s.to_string()).collect(),
         must_contain_terms: terms.iter().map(|s| s.to_string()).collect(),
         notes: None,
+        axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
     }
 }
 

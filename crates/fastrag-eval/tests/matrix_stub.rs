@@ -2,7 +2,7 @@
 
 use fastrag::corpus::LatencyBreakdown;
 use fastrag_eval::EvalError;
-use fastrag_eval::gold_set::{GoldSet, GoldSetEntry};
+use fastrag_eval::gold_set::{Axes, GoldSet, GoldSetEntry, Style, TemporalIntent};
 use fastrag_eval::matrix::{ConfigVariant, CorpusDriver, run_matrix};
 
 /// Stub driver with fully deterministic per-stage latencies and chunk returns.
@@ -53,6 +53,7 @@ fn single_entry_gold_set() -> GoldSet {
             must_contain_cve_ids: vec!["CVE-2024-12345".into()],
             must_contain_terms: vec!["libfoo".into()],
             notes: None,
+            axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
         }],
     }
 }
@@ -67,6 +68,7 @@ fn multi_entry_gold_set() -> GoldSet {
                 must_contain_cve_ids: vec!["CVE-2024-12345".into()],
                 must_contain_terms: vec!["libfoo".into()],
                 notes: None,
+                axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
             },
             GoldSetEntry {
                 id: "q002".into(),
@@ -74,6 +76,7 @@ fn multi_entry_gold_set() -> GoldSet {
                 must_contain_cve_ids: vec!["CVE-2024-12345".into()],
                 must_contain_terms: vec![],
                 notes: None,
+                axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
             },
             GoldSetEntry {
                 id: "q003".into(),
@@ -81,6 +84,7 @@ fn multi_entry_gold_set() -> GoldSet {
                 must_contain_cve_ids: vec![],
                 must_contain_terms: vec!["libfoo".into()],
                 notes: None,
+                axes: Axes { style: Style::Conceptual, temporal_intent: TemporalIntent::Neutral },
             },
         ],
     }

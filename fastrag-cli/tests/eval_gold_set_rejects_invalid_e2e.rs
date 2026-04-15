@@ -21,7 +21,8 @@ fn config_matrix_rejects_gold_set_with_empty_question() {
                     "id": "bad_one",
                     "question": "",
                     "must_contain_cve_ids": ["CVE-2024-1"],
-                    "must_contain_terms": []
+                    "must_contain_terms": [],
+                    "axes": {{"style": "identifier", "temporal_intent": "neutral"}}
                 }}
             ]
         }}"#
