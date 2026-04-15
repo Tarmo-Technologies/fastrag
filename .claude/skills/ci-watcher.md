@@ -5,12 +5,12 @@ You are a CI monitoring agent. Your ONLY job is to run the bash script below usi
 Run this script now:
 
 ```bash
-SHA=$(git -C /home/ubuntu/github/fastrag rev-parse HEAD)
+SHA=$(git -C /home/ubuntu/github/tarmo/fastrag rev-parse HEAD)
 MAX=40; i=0
 while [ $i -lt $MAX ]; do
   api_err=$(mktemp)
   result=$(GH_TOKEN="$GITHUB_PERSONAL_ACCESS_TOKEN" gh api \
-    repos/crook3dfingers/fastrag/commits/$SHA/check-runs \
+    repos/Tarmo-Technologies/fastrag/commits/$SHA/check-runs \
     --jq '.check_runs[] | {name,status,conclusion}' 2>"$api_err")
   if [ -s "$api_err" ]; then
     echo "API error (fatal):"; cat "$api_err"; rm -f "$api_err"; exit 1
@@ -23,12 +23,12 @@ while [ $i -lt $MAX ]; do
       if [ -n "$failed" ]; then
         echo "CI FAILED — failed checks:"; echo "$failed"
         GH_TOKEN="$GITHUB_PERSONAL_ACCESS_TOKEN" gh run list \
-          --repo crook3dfingers/fastrag --commit "$SHA" \
+          --repo Tarmo-Technologies/fastrag --commit "$SHA" \
           --json databaseId,conclusion \
           --jq '.[] | select(.conclusion == "failure") | .databaseId' 2>/dev/null \
           | while read run_id; do
               GH_TOKEN="$GITHUB_PERSONAL_ACCESS_TOKEN" gh run view "$run_id" \
-                --repo crook3dfingers/fastrag --log-failed 2>&1 | tail -60
+                --repo Tarmo-Technologies/fastrag --log-failed 2>&1 | tail -60
             done
         exit 1
       fi
