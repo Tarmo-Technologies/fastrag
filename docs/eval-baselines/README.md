@@ -53,6 +53,20 @@ jq '.runs[] | {variant, hit_at_5, mrr_at_10}' docs/eval-baselines/current.json
 report fails with a mismatch error pointing at this recapture command —
 refresh the baseline before the gate can run again.
 
+### Status (April 2026)
+
+`current.json` is currently absent. The weekly workflow runs without
+`--baseline` and uploads the matrix report as an artifact. Two changes are
+required before a v2 baseline can be committed:
+
+1. **Fix `RealCorpusDriver::query`** at `crates/fastrag-eval/src/matrix_real.rs:76`
+   to hydrate chunk text from the Store rather than returning HNSW hit IDs
+   as strings. The gold-set scorer greps retrieved chunks for must-contain
+   CVE IDs and terms, so ID-only results always score 0.
+2. **Re-run the capture command** from the Initial capture section above.
+   The resulting `current.json` will carry `schema_version: 2` with the
+   per-axis `buckets` populated on each variant.
+
 ## Refresh flow
 
 After Phase 2 Step 7 (security corpus hygiene) landed on 2026-04-11, the gold set grew from 105 to 110 entries (5 new `hygiene-*` questions: Log4Shell, HTTP/2 Rapid Reset, Spring4Shell, Apache vendor facet, and KEV tagging). Refresh the baseline by running the capture command on a workstation with llama-server before the first post-Step-7 commit to `docs/eval-baselines/current.json`.
