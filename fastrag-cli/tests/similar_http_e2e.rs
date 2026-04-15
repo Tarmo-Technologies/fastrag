@@ -105,3 +105,185 @@ async fn post_similar_happy_path() {
     assert_eq!(body["stats"]["returned"].as_u64().unwrap(), 1);
     assert!(body["latency"]["embed_us"].as_u64().is_some());
 }
+
+// --- Task 6: HTTP validation paths ---
+
+#[tokio::test]
+async fn post_similar_rejects_hybrid_params() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.5,
+            "max_results": 5,
+            "hybrid": true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("/query"), "error should point to /query: {body}");
+}
+
+#[tokio::test]
+async fn post_similar_rejects_rerank_param() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.5,
+            "max_results": 5,
+            "rerank": "on"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("reranking"));
+}
+
+#[tokio::test]
+async fn post_similar_rejects_both_corpus_and_corpora() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("one", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.5,
+            "max_results": 5,
+            "corpus": "one",
+            "corpora": ["one"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("exactly one"));
+}
+
+#[tokio::test]
+async fn post_similar_rejects_empty_corpora() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.5,
+            "max_results": 5,
+            "corpora": []
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("corpora") && body.contains("non-empty"));
+}
+
+#[tokio::test]
+async fn post_similar_rejects_threshold_out_of_range() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 1.5,
+            "max_results": 5
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("threshold"));
+}
+
+#[tokio::test]
+async fn post_similar_rejects_max_results_out_of_range() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.5,
+            "max_results": 5000
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn post_similar_rejects_empty_text() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "",
+            "threshold": 0.5,
+            "max_results": 5
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("text"));
+}
+
+#[tokio::test]
+async fn post_similar_corpus_not_found() {
+    let corpus = build_toy_corpus(&[("a", "alpha")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let resp = Client::new()
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.5,
+            "max_results": 5,
+            "corpus": "missing"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("missing"));
+}
