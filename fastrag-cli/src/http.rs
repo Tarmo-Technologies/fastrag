@@ -269,6 +269,10 @@ struct SimilarRequest {
     rerank: Option<serde_json::Value>,
     #[serde(default)]
     cwe_expand: Option<serde_json::Value>,
+    /// Optional post-ANN verification. Shape: `{ method: "minhash", threshold: 0.7 }`.
+    /// Parsed as raw JSON to produce precise 400 messages for bad shapes.
+    #[serde(default)]
+    verify: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Error)]
@@ -290,6 +294,45 @@ enum FieldSelection {
     All,
     Include(Vec<String>),
     Exclude(Vec<String>),
+}
+
+/// Parse a `verify` block from raw JSON, producing precise 400 messages.
+fn parse_verify_block(v: &serde_json::Value) -> Result<fastrag::corpus::VerifyConfig, String> {
+    let obj = v
+        .as_object()
+        .ok_or_else(|| "verify must be an object".to_string())?;
+    for k in obj.keys() {
+        if k != "method" && k != "threshold" {
+            return Err(format!("verify has unknown field `{k}`"));
+        }
+    }
+    let method_val = obj
+        .get("method")
+        .ok_or_else(|| "verify.method is required".to_string())?;
+    let method_str = method_val
+        .as_str()
+        .ok_or_else(|| "verify.method must be a string".to_string())?;
+    let method = match method_str {
+        "minhash" => fastrag::corpus::VerifyMethod::MinHash,
+        other => {
+            return Err(format!(
+                "verify.method `{other}` is not supported; expected \"minhash\""
+            ));
+        }
+    };
+    let threshold_val = obj
+        .get("threshold")
+        .ok_or_else(|| "verify.threshold is required".to_string())?;
+    let threshold_f64 = threshold_val
+        .as_f64()
+        .ok_or_else(|| "verify.threshold must be a number".to_string())?;
+    if !(0.0..=1.0).contains(&threshold_f64) {
+        return Err("verify.threshold must be in [0.0, 1.0]".to_string());
+    }
+    Ok(fastrag::corpus::VerifyConfig {
+        method,
+        threshold: threshold_f64 as f32,
+    })
 }
 
 fn parse_field_selection(fields: Option<&str>) -> Result<FieldSelection, String> {
@@ -1363,6 +1406,15 @@ async fn similar_handler(
         out
     };
 
+    // Parse optional verify block.
+    let verify_cfg = match &req.verify {
+        None => None,
+        Some(v) => match parse_verify_block(v) {
+            Ok(cfg) => Some(cfg),
+            Err(msg) => return Err((StatusCode::BAD_REQUEST, msg).into_response()),
+        },
+    };
+
     let snippet_len = 150;
     let request = fastrag::corpus::SimilarityRequest {
         text: req.text.clone(),
@@ -1372,7 +1424,7 @@ async fn similar_handler(
         filter,
         snippet_len,
         overfetch_cap: state.similar_overfetch_cap,
-        verify: None,
+        verify: verify_cfg,
     };
     let embedder = state.embedder.clone();
 
