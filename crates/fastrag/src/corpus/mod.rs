@@ -19,10 +19,12 @@ pub mod registry;
 pub use registry::CorpusRegistry;
 pub mod hybrid;
 pub mod similar;
+pub mod verify;
 pub use similar::{
     PerCorpusStats, SimilarityHit, SimilarityRequest, SimilarityResponse, SimilarityStats,
     similarity_search,
 };
+pub use verify::{VerifyConfig, VerifyMethod};
 
 /// Options for the filter-aware query path.
 #[derive(Debug, Clone, Default)]
