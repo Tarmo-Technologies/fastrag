@@ -28,6 +28,7 @@ async fn ingest_creates_queryable_records() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
@@ -124,6 +125,7 @@ async fn ingest_rejects_unknown_corpus() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
@@ -166,6 +168,7 @@ async fn delete_removes_record() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
@@ -250,6 +253,7 @@ async fn ingest_rejects_oversized_body() {
             100,
             None,
             256,
+            10_000,
         )
         .await
         .unwrap();
@@ -300,6 +304,7 @@ async fn ingest_requires_auth_when_token_set() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();

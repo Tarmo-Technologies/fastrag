@@ -1,0 +1,107 @@
+//! End-to-end tests for POST /similar.
+#![cfg(feature = "retrieval")]
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use fastrag::ChunkingStrategy;
+use fastrag::corpus::CorpusRegistry;
+use fastrag::ingest::engine::index_jsonl;
+use fastrag::ingest::jsonl::JsonlIngestConfig;
+use fastrag_cli::http::{HttpRerankerConfig, serve_http_with_registry};
+use fastrag_embed::test_utils::MockEmbedder;
+use reqwest::Client;
+use reqwest::StatusCode;
+use serde_json::json;
+
+fn build_toy_corpus(docs: &[(&str, &str)]) -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    let jsonl = tmp.path().join("docs.jsonl");
+    let lines: Vec<String> = docs
+        .iter()
+        .map(|(id, body)| json!({"id": id, "body": body}).to_string())
+        .collect();
+    std::fs::write(&jsonl, lines.join("\n")).unwrap();
+    let corpus = tmp.path().join("corpus");
+    let cfg = JsonlIngestConfig {
+        text_fields: vec!["body".into()],
+        id_field: "id".into(),
+        metadata_fields: vec![],
+        metadata_types: BTreeMap::new(),
+        array_fields: vec![],
+        cwe_field: None,
+    };
+    index_jsonl(
+        &jsonl,
+        &corpus,
+        &ChunkingStrategy::Basic {
+            max_characters: 500,
+            overlap: 0,
+        },
+        &MockEmbedder as &dyn fastrag::DynEmbedderTrait,
+        &cfg,
+    )
+    .unwrap();
+    // Return a TempDir pointing at the corpus subdir by shifting: the corpus
+    // lives inside tmp. Return the outer handle so tmp survives.
+    let holder = tempfile::tempdir().unwrap();
+    // Move the corpus into holder so the TempDir drop guards it.
+    let dest = holder.path().join("corpus");
+    std::fs::rename(&corpus, &dest).unwrap();
+    // tmp is dropped (cleans the jsonl); holder survives with the corpus.
+    holder
+}
+
+async fn spawn_server(registry: CorpusRegistry) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let embedder: Arc<dyn fastrag::DynEmbedderTrait> = Arc::new(MockEmbedder);
+    tokio::spawn(async move {
+        serve_http_with_registry(
+            registry,
+            listener,
+            embedder,
+            None,
+            false,
+            false,
+            HttpRerankerConfig::default(),
+            100,
+            None,
+            52_428_800,
+            10_000,
+        )
+        .await
+        .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    format!("http://{}", addr)
+}
+
+#[tokio::test]
+async fn post_similar_happy_path() {
+    let corpus = build_toy_corpus(&[("a", "alpha"), ("b", "xyzzy plover"), ("c", "quux frob")]);
+    let registry = CorpusRegistry::new();
+    registry.register("default", corpus.path().join("corpus"));
+    let base = spawn_server(registry).await;
+
+    let client = Client::new();
+    let resp = client
+        .post(format!("{base}/similar"))
+        .json(&json!({
+            "text": "alpha",
+            "threshold": 0.95,
+            "max_results": 10
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let hits = body["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0]["cosine_similarity"].as_f64().unwrap() >= 0.95);
+    assert_eq!(hits[0]["corpus"].as_str().unwrap(), "default");
+    assert!(!body["truncated"].as_bool().unwrap());
+    assert_eq!(body["stats"]["returned"].as_u64().unwrap(), 1);
+    assert!(body["latency"]["embed_us"].as_u64().is_some());
+}

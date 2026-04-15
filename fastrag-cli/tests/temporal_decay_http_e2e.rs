@@ -30,6 +30,7 @@ async fn spawn(registry: CorpusRegistry) -> std::net::SocketAddr {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();

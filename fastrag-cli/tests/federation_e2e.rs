@@ -69,6 +69,7 @@ async fn named_corpus_query() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
@@ -121,6 +122,7 @@ async fn get_corpora_lists_registry() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
@@ -167,6 +169,7 @@ async fn default_corpus_used_when_no_corpus_param() {
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
@@ -207,6 +210,7 @@ async fn tenant_enforcement_rejects_missing_header() {
             100,
             Some("engagement_id".to_string()), // tenant enforcement ON
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();

@@ -40,6 +40,7 @@ struct AppState {
     tenant_field: Option<String>,
     ingest_locks: IngestLocks,
     ingest_max_body: usize,
+    similar_overfetch_cap: usize,
     #[cfg(feature = "rerank")]
     reranker: Option<std::sync::Arc<dyn fastrag_rerank::Reranker>>,
     #[cfg(feature = "rerank")]
@@ -233,6 +234,43 @@ struct BatchResultItem {
     error: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct SimilarRequest {
+    text: String,
+    threshold: f32,
+    max_results: usize,
+    #[serde(default)]
+    corpus: Option<String>,
+    #[serde(default)]
+    corpora: Option<Vec<String>>,
+    /// Accepts either string syntax ("severity = HIGH") or JSON AST.
+    #[serde(default)]
+    filter: Option<serde_json::Value>,
+    #[serde(default)]
+    fields: Option<String>,
+    // Catch-all for rejected params. Any of these set -> 400.
+    #[serde(default)]
+    hybrid: Option<serde_json::Value>,
+    #[serde(default)]
+    rrf_k: Option<serde_json::Value>,
+    #[serde(default)]
+    rrf_overfetch: Option<serde_json::Value>,
+    #[serde(default)]
+    time_decay_field: Option<serde_json::Value>,
+    #[serde(default)]
+    time_decay_halflife: Option<serde_json::Value>,
+    #[serde(default)]
+    time_decay_weight: Option<serde_json::Value>,
+    #[serde(default)]
+    time_decay_dateless_prior: Option<serde_json::Value>,
+    #[serde(default)]
+    time_decay_blend: Option<serde_json::Value>,
+    #[serde(default)]
+    rerank: Option<serde_json::Value>,
+    #[serde(default)]
+    cwe_expand: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Error)]
 pub enum HttpError {
     #[error("I/O error: {0}")]
@@ -412,6 +450,7 @@ pub async fn serve_http_with_embedder(
         batch_max_queries,
         None,
         ingest_max_body,
+        10_000,
     )
     .await
 }
@@ -428,6 +467,7 @@ pub async fn serve_http_with_registry_port(
     batch_max_queries: usize,
     tenant_field: Option<String>,
     ingest_max_body: usize,
+    similar_overfetch_cap: usize,
 ) -> Result<(), HttpError> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
     serve_http_with_registry(
@@ -441,6 +481,7 @@ pub async fn serve_http_with_registry_port(
         batch_max_queries,
         tenant_field,
         ingest_max_body,
+        similar_overfetch_cap,
     )
     .await
 }
@@ -457,6 +498,7 @@ pub async fn serve_http_with_registry(
     batch_max_queries: usize,
     tenant_field: Option<String>,
     ingest_max_body: usize,
+    similar_overfetch_cap: usize,
 ) -> Result<(), HttpError> {
     // The `metrics` crate allows exactly one global recorder per process, but in
     // test binaries multiple serve_http_with_embedder calls share one process.
@@ -478,6 +520,11 @@ pub async fn serve_http_with_registry(
     metrics::describe_gauge!(
         "fastrag_index_entries",
         "Number of entries in the loaded corpus index"
+    );
+    metrics::describe_counter!("fastrag_similar_total", "Total /similar requests served");
+    metrics::describe_histogram!(
+        "fastrag_similar_duration_seconds",
+        "Latency of /similar requests in seconds"
     );
 
     // Update index entry gauge for every registered corpus.
@@ -509,6 +556,7 @@ pub async fn serve_http_with_registry(
         tenant_field,
         ingest_locks: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         ingest_max_body,
+        similar_overfetch_cap,
         #[cfg(feature = "rerank")]
         reranker: rerank_cfg.reranker,
         #[cfg(feature = "rerank")]
@@ -535,6 +583,10 @@ pub async fn serve_http_with_registry(
         // enumeration without tenant credentials.
         .route("/corpora", get(list_corpora))
         .route("/stats", get(stats_handler))
+        .route(
+            "/similar",
+            axum::routing::post(similar_handler).layer(DefaultBodyLimit::max(1024 * 1024)),
+        )
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),
             tenant_middleware,
@@ -1192,6 +1244,181 @@ async fn query(
         Err(err) => {
             warn!(error = %err, "query failed");
             Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())
+        }
+    }
+}
+
+async fn similar_handler(
+    State(state): State<AppState>,
+    tenant_ext: Option<Extension<TenantFilter>>,
+    Json(req): Json<SimilarRequest>,
+) -> Result<Json<serde_json::Value>, Response> {
+    // Reject unsupported params up front.
+    if req.hybrid.is_some()
+        || req.rrf_k.is_some()
+        || req.rrf_overfetch.is_some()
+        || req.time_decay_field.is_some()
+        || req.time_decay_halflife.is_some()
+        || req.time_decay_weight.is_some()
+        || req.time_decay_dateless_prior.is_some()
+        || req.time_decay_blend.is_some()
+        || req.cwe_expand.is_some()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "/similar does not support hybrid or temporal decay; see /query",
+        )
+            .into_response());
+    }
+    if req.rerank.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "/similar does not support reranking",
+        )
+            .into_response());
+    }
+
+    // Validate scalars.
+    if req.text.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "text must be non-empty").into_response());
+    }
+    if !(0.0..=1.0).contains(&req.threshold) {
+        return Err((StatusCode::BAD_REQUEST, "threshold must be in [0.0, 1.0]").into_response());
+    }
+    if req.max_results == 0 || req.max_results > 1000 {
+        return Err((StatusCode::BAD_REQUEST, "max_results must be in [1, 1000]").into_response());
+    }
+
+    // Resolve target corpora.
+    if req.corpus.is_some() && req.corpora.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "exactly one of `corpus` or `corpora` may be set",
+        )
+            .into_response());
+    }
+    let names: Vec<String> = match (&req.corpus, &req.corpora) {
+        (Some(n), None) => vec![n.clone()],
+        (None, Some(v)) => {
+            if v.is_empty() {
+                return Err(
+                    (StatusCode::BAD_REQUEST, "`corpora` must be non-empty").into_response()
+                );
+            }
+            v.clone()
+        }
+        (None, None) => vec!["default".into()],
+        (Some(_), Some(_)) => unreachable!(), // handled above
+    };
+    let mut targets: Vec<(String, std::path::PathBuf)> = Vec::with_capacity(names.len());
+    for name in &names {
+        let Some(path) = state.registry.corpus_path(name) else {
+            return Err(
+                (StatusCode::NOT_FOUND, format!("corpus not found: {name}")).into_response()
+            );
+        };
+        targets.push((name.clone(), path));
+    }
+
+    // Parse filter (string or JSON AST) + AND-in tenant filter.
+    let base_filter: Option<fastrag::filter::FilterExpr> = match &req.filter {
+        None => None,
+        Some(serde_json::Value::String(s)) => match fastrag::filter::parse(s) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                return Err((StatusCode::BAD_REQUEST, format!("bad filter: {e}")).into_response());
+            }
+        },
+        Some(v) => match serde_json::from_value::<fastrag::filter::FilterExpr>(v.clone()) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                return Err((StatusCode::BAD_REQUEST, format!("bad filter: {e}")).into_response());
+            }
+        },
+    };
+    let filter = if let Some(Extension(tf)) = tenant_ext {
+        let tenant_cond = fastrag::filter::FilterExpr::Eq {
+            field: tf.field.clone(),
+            value: fastrag_store::schema::TypedValue::String(tf.value.clone()),
+        };
+        Some(match base_filter {
+            Some(existing) => fastrag::filter::FilterExpr::And(vec![tenant_cond, existing]),
+            None => tenant_cond,
+        })
+    } else {
+        base_filter
+    };
+
+    // Acquire per-corpus read locks (same pattern as /query).
+    let mut guards = Vec::with_capacity(targets.len());
+    for (name, _) in &targets {
+        let lock = get_or_create_lock(&state.ingest_locks, name);
+        guards.push(lock);
+    }
+    let _read_guards: Vec<_> = {
+        let mut out = Vec::with_capacity(guards.len());
+        for lock in &guards {
+            out.push(lock.read().await);
+        }
+        out
+    };
+
+    let snippet_len = 150;
+    let request = fastrag::corpus::SimilarityRequest {
+        text: req.text.clone(),
+        threshold: req.threshold,
+        max_results: req.max_results,
+        targets,
+        filter,
+        snippet_len,
+        overfetch_cap: state.similar_overfetch_cap,
+    };
+    let embedder = state.embedder.clone();
+
+    let field_sel = match parse_field_selection(req.fields.as_deref()) {
+        Ok(sel) => sel,
+        Err(e) => return Err((StatusCode::BAD_REQUEST, e).into_response()),
+    };
+
+    let span = info_span!(
+        "similar",
+        text = %request.text,
+        threshold = request.threshold,
+        max_results = request.max_results,
+        corpora_count = request.targets.len(),
+    );
+    let _enter = span.enter();
+    let start = Instant::now();
+
+    let result = tokio::task::spawn_blocking(move || {
+        fastrag::corpus::similarity_search(
+            embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
+            &request,
+        )
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")).into_response())?;
+
+    let elapsed = start.elapsed();
+    metrics::counter!("fastrag_similar_total").increment(1);
+    metrics::histogram!("fastrag_similar_duration_seconds").record(elapsed.as_secs_f64());
+
+    match result {
+        Ok(resp) => {
+            let mut value = serde_json::to_value(&resp).unwrap();
+            // Apply field projection to each hit's source via existing helper.
+            if let Some(hits) = value.get_mut("hits").and_then(|v| v.as_array_mut()) {
+                apply_field_selection(hits, &field_sel);
+            }
+            info!(hit_count = resp.hits.len(), "similar served");
+            Ok(Json(value))
+        }
+        Err(CorpusError::NotFound(name)) => {
+            Err((StatusCode::NOT_FOUND, format!("corpus not found: {name}")).into_response())
+        }
+        Err(e) => {
+            warn!(error = %e, "similar failed");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
         }
     }
 }

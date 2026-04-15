@@ -764,6 +764,7 @@ async fn main() {
                 batch_max_queries,
                 tenant_field,
                 ingest_max_body,
+                10_000,
             )
             .await
             {

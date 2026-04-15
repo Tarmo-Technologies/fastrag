@@ -33,6 +33,7 @@ async fn spawn_with_default(
             100,
             None,
             52_428_800,
+            10_000,
         )
         .await
         .unwrap();
