@@ -365,6 +365,58 @@ Date metadata is typed at ingest time through JSONL ingestion with `--metadata-t
 
 The HTTP `/query` endpoint accepts every flag as a snake-cased query-string param: `?time_decay_field=published_date&time_decay_halflife=30d&time_decay_weight=0.3&time_decay_blend=additive`. The MCP `search_corpus` tool accepts the same names in its params object. Invalid values (e.g. `time_decay_blend=bogus`) return HTTP 400.
 
+### Similarity Search
+
+`POST /similar` returns documents whose raw cosine similarity to a query text exceeds a threshold, rather than a fixed top-K. Use it for dedup and cross-corpus near-duplicate detection.
+
+**Request:**
+
+```json
+POST /similar
+Content-Type: application/json
+
+{
+  "text": "SQL injection in login form",
+  "threshold": 0.85,
+  "max_results": 10,
+  "corpus": "acme-q1",
+  "filter": "source_tool = semgrep"
+}
+```
+
+Replace `corpus` with `corpora: ["acme-q1", "acme-q2"]` to fan out across multiple registered corpora. Setting both is an error.
+
+**Fields:**
+
+| Field | Required | Notes |
+|---|---|---|
+| `text` | yes | Non-empty. Embedded once per request. |
+| `threshold` | yes | Raw cosine, `[0.0, 1.0]`. |
+| `max_results` | yes | `[1, 1000]`. |
+| `corpus` | no | Defaults to `default` when `corpora` is also omitted. |
+| `corpora` | no | Non-empty array of registry names. Mutually exclusive with `corpus`. |
+| `filter` | no | String syntax (`"severity = HIGH"`) or JSON `FilterExpr`. |
+| `fields` | no | Projection (`include` or `exclude-` prefix), same syntax as `/query`. |
+
+Hybrid retrieval, temporal decay, CWE expansion, and reranking are rejected with 400 — they change score semantics, which breaks threshold portability.
+
+**Response:**
+
+```json
+{
+  "hits": [
+    { "cosine_similarity": 0.934, "corpus": "acme-q1", "snippet": "...", "source": { ... } }
+  ],
+  "truncated": false,
+  "stats": { "candidates_examined": 480, "above_threshold": 12, "returned": 10 },
+  "latency": { "embed_us": 1240, "hnsw_us": 8100, "total_us": 12300 }
+}
+```
+
+`truncated: true` means the adaptive overfetch hit the server cap before exhausting the above-threshold tail. Raise `--similar-overfetch-cap` on `serve-http` when this occurs on large corpora.
+
+**Threshold portability caveat:** cosine thresholds are specific to an embedder model. A `0.85` threshold for `bge-small` is not comparable to a `0.85` threshold for `text-embedding-3-small`. Version thresholds per embedder.
+
 ### Contextual Retrieval (optional)
 
 FastRAG supports Anthropic's Contextual Retrieval technique as an opt-in
