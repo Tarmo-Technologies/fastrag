@@ -1161,7 +1161,7 @@ pub(crate) fn filter_scored_ids(
 ///
 /// Each `ChunkHit` in a `SearchHit` maps to one `SearchHitDto`, inheriting
 /// the chunk-level score, text, source path, and metadata.
-fn scored_ids_to_dtos(
+pub(crate) fn scored_ids_to_dtos(
     store: &fastrag_store::Store,
     scored: &[(u64, f32)],
     snippet_query: Option<&str>,

@@ -7,12 +7,13 @@
 //! Narrow by design: no hybrid, no temporal decay, no CWE expansion, no rerank.
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::corpus::{CorpusError, LatencyBreakdown, SearchHitDto};
+use crate::corpus::{CorpusError, LatencyBreakdown, SearchHitDto, scored_ids_to_dtos};
 use crate::filter::FilterExpr;
-use fastrag_embed::DynEmbedderTrait;
+use fastrag_embed::{DynEmbedderTrait, QueryText};
 
 /// Input to `similarity_search`. Caller resolves corpus names to paths and
 /// stamps them back on each hit.
@@ -68,14 +69,179 @@ pub struct SimilarityResponse {
 /// Run similarity search. Embeds `request.text` once, fans out per target
 /// corpus, merges, sorts, truncates to `max_results`.
 pub fn similarity_search(
-    _embedder: &dyn DynEmbedderTrait,
-    _request: &SimilarityRequest,
+    embedder: &dyn DynEmbedderTrait,
+    request: &SimilarityRequest,
 ) -> Result<SimilarityResponse, CorpusError> {
-    // Implemented in Task 3. Keep the function reachable so downstream tasks
-    // have a stable symbol to dispatch against.
-    Err(CorpusError::Other(
-        "similarity_search: not implemented".into(),
-    ))
+    let total_start = Instant::now();
+    let mut latency = LatencyBreakdown::default();
+
+    // Embed the query ONCE.
+    let embed_start = Instant::now();
+    let vector = embedder
+        .embed_query_dyn(&[QueryText::new(&request.text)])
+        .map_err(|e| CorpusError::Embed(e.to_string()))?
+        .into_iter()
+        .next()
+        .ok_or(CorpusError::EmptyEmbeddingOutput)?;
+    latency.embed_us = embed_start.elapsed().as_micros() as u64;
+
+    // Fan out per corpus. Task 4 replaces this with parallel spawn_blocking.
+    let mut per_corpus: std::collections::BTreeMap<String, PerCorpusStats> =
+        std::collections::BTreeMap::new();
+    let mut merged_raw: Vec<(String, u64, f32)> = Vec::new();
+    let mut any_truncated = false;
+
+    for (name, path) in &request.targets {
+        let outcome = similarity_search_one(&vector, path, request, embedder, &mut latency)?;
+        per_corpus.insert(
+            name.clone(),
+            PerCorpusStats {
+                candidates_examined: outcome.candidates_examined,
+                above_threshold: outcome.above.len(),
+            },
+        );
+        any_truncated |= outcome.truncated;
+        for (id, score) in outcome.above {
+            merged_raw.push((name.clone(), id, score));
+        }
+    }
+
+    // Sort descending by cosine; tie-break on (corpus, id) for determinism.
+    merged_raw.sort_by(|a, b| {
+        b.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+
+    let above_threshold_total = merged_raw.len();
+    merged_raw.truncate(request.max_results);
+
+    // Hydrate survivors via the Store(s) they came from.
+    // We re-open each Store once per group to batch-hydrate.
+    let mut hits: Vec<SimilarityHit> = Vec::with_capacity(merged_raw.len());
+    let mut by_corpus: std::collections::BTreeMap<&String, Vec<(u64, f32)>> =
+        std::collections::BTreeMap::new();
+    for (name, id, score) in &merged_raw {
+        by_corpus.entry(name).or_default().push((*id, *score));
+    }
+    for (name, scored) in by_corpus {
+        let path = request
+            .targets
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, p)| p.clone())
+            .expect("resolved corpus must be present in targets");
+        let store = fastrag_store::Store::open(&path, embedder)?;
+        let snippet_query = if request.snippet_len > 0 {
+            Some(request.text.as_str())
+        } else {
+            None
+        };
+        let dtos = scored_ids_to_dtos(&store, &scored, snippet_query, request.snippet_len)?;
+        for dto in dtos {
+            hits.push(SimilarityHit {
+                cosine_similarity: dto.score,
+                corpus: name.clone(),
+                dto,
+            });
+        }
+    }
+    // Re-sort after hydration so the output order matches the merged order.
+    hits.sort_by(|a, b| {
+        b.cosine_similarity
+            .partial_cmp(&a.cosine_similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.corpus.cmp(&b.corpus))
+            .then_with(|| a.dto.chunk_index.cmp(&b.dto.chunk_index))
+    });
+
+    let returned = hits.len();
+    latency.total_us = total_start.elapsed().as_micros() as u64;
+
+    let stats = SimilarityStats {
+        candidates_examined: per_corpus.values().map(|p| p.candidates_examined).sum(),
+        above_threshold: above_threshold_total,
+        returned,
+        per_corpus: if request.targets.len() > 1 {
+            per_corpus
+        } else {
+            std::collections::BTreeMap::new()
+        },
+    };
+
+    Ok(SimilarityResponse {
+        hits,
+        truncated: any_truncated,
+        stats,
+        latency,
+    })
+}
+
+struct PerCorpusOutcome {
+    above: Vec<(u64, f32)>,
+    candidates_examined: usize,
+    truncated: bool,
+}
+
+fn similarity_search_one(
+    vector: &[f32],
+    corpus_path: &std::path::Path,
+    request: &SimilarityRequest,
+    embedder: &dyn DynEmbedderTrait,
+    latency: &mut LatencyBreakdown,
+) -> Result<PerCorpusOutcome, CorpusError> {
+    let store = fastrag_store::Store::open(corpus_path, embedder)?;
+
+    let mut fetch_count = request.max_results.saturating_mul(10).max(1);
+    let cap = request.overfetch_cap.max(1);
+
+    loop {
+        let n = fetch_count.min(cap);
+        let hnsw_start = Instant::now();
+        let candidates = store.query_dense(vector, n)?;
+        latency.hnsw_us = latency
+            .hnsw_us
+            .saturating_add(hnsw_start.elapsed().as_micros() as u64);
+        let candidates_examined = candidates.len();
+
+        let filtered: Vec<(u64, f32)> = match &request.filter {
+            Some(expr) => crate::corpus::filter_scored_ids(&store, &candidates, expr)?,
+            None => candidates.clone(),
+        };
+
+        let above: Vec<(u64, f32)> = filtered
+            .iter()
+            .filter(|(_, s)| *s >= request.threshold)
+            .copied()
+            .collect();
+
+        if above.len() >= request.max_results {
+            return Ok(PerCorpusOutcome {
+                above,
+                candidates_examined,
+                truncated: false,
+            });
+        }
+        let tail_below = candidates
+            .last()
+            .is_some_and(|(_, s)| *s < request.threshold);
+        if tail_below || candidates.is_empty() {
+            return Ok(PerCorpusOutcome {
+                above,
+                candidates_examined,
+                truncated: false,
+            });
+        }
+        if n >= cap {
+            return Ok(PerCorpusOutcome {
+                above,
+                candidates_examined,
+                truncated: true,
+            });
+        }
+        fetch_count = fetch_count.saturating_mul(2).min(cap);
+    }
 }
 
 #[cfg(test)]
@@ -94,5 +260,219 @@ mod tests {
         let pc = PerCorpusStats::default();
         let _ = pc.candidates_examined;
         let _ = pc.above_threshold;
+    }
+
+    #[cfg(feature = "store")]
+    mod single_corpus_tests {
+        use super::*;
+        use crate::ChunkingStrategy;
+        use crate::ingest::engine::index_jsonl;
+        use crate::ingest::jsonl::JsonlIngestConfig;
+        use fastrag_embed::test_utils::MockEmbedder;
+        use std::collections::BTreeMap;
+
+        fn build_corpus(docs: &[(&str, &str)]) -> (tempfile::TempDir, std::path::PathBuf) {
+            let tmp = tempfile::tempdir().unwrap();
+            let jsonl = tmp.path().join("docs.jsonl");
+            let lines: Vec<String> = docs
+                .iter()
+                .map(|(id, body)| serde_json::json!({ "id": id, "body": body }).to_string())
+                .collect();
+            std::fs::write(&jsonl, lines.join("\n")).unwrap();
+            let corpus = tmp.path().join("corpus");
+            let cfg = JsonlIngestConfig {
+                text_fields: vec!["body".into()],
+                id_field: "id".into(),
+                metadata_fields: vec![],
+                metadata_types: BTreeMap::new(),
+                array_fields: vec![],
+                cwe_field: None,
+            };
+            index_jsonl(
+                &jsonl,
+                &corpus,
+                &ChunkingStrategy::Basic {
+                    max_characters: 500,
+                    overlap: 0,
+                },
+                &MockEmbedder as &dyn fastrag_embed::DynEmbedderTrait,
+                &cfg,
+            )
+            .unwrap();
+            (tmp, corpus)
+        }
+
+        #[test]
+        fn threshold_filters_below_cutoff() {
+            // Query matches doc "alpha" exactly -> cosine ~ 1.0.
+            // Unrelated docs have much lower cosine under MockEmbedder.
+            let (_t, corpus) =
+                build_corpus(&[("a", "alpha"), ("b", "xyzzy plover"), ("c", "quux frob")]);
+            let req = SimilarityRequest {
+                text: "alpha".into(),
+                threshold: 0.95,
+                max_results: 10,
+                targets: vec![("default".into(), corpus)],
+                filter: None,
+                snippet_len: 0,
+                overfetch_cap: 10_000,
+            };
+            let resp = similarity_search(&MockEmbedder, &req).unwrap();
+            assert_eq!(resp.hits.len(), 1, "only 'a' should pass 0.95 threshold");
+            assert_eq!(resp.hits[0].corpus, "default");
+            assert!(resp.hits[0].cosine_similarity >= 0.95);
+            assert_eq!(resp.stats.above_threshold, 1);
+            assert_eq!(resp.stats.returned, 1);
+            assert!(!resp.truncated);
+        }
+
+        #[test]
+        fn max_results_caps_above_threshold() {
+            // 10 identical docs -> all cosine ~ 1.0 -> all above any sensible
+            // threshold. max_results=3 caps output.
+            let docs: Vec<(String, String)> = (0..10)
+                .map(|i| (format!("d{i}"), "alpha".to_string()))
+                .collect();
+            let docs_ref: Vec<(&str, &str)> =
+                docs.iter().map(|(i, b)| (i.as_str(), b.as_str())).collect();
+            let (_t, corpus) = build_corpus(&docs_ref);
+            let req = SimilarityRequest {
+                text: "alpha".into(),
+                threshold: 0.5,
+                max_results: 3,
+                targets: vec![("default".into(), corpus)],
+                filter: None,
+                snippet_len: 0,
+                overfetch_cap: 10_000,
+            };
+            let resp = similarity_search(&MockEmbedder, &req).unwrap();
+            assert_eq!(resp.hits.len(), 3);
+            assert_eq!(resp.stats.returned, 3);
+            assert!(resp.stats.above_threshold >= 3);
+            assert!(!resp.truncated);
+        }
+
+        #[test]
+        fn adaptive_overfetch_returns_all_above_threshold_when_tail_exhausted() {
+            // Mix 5 matching docs with 20 non-matching. All 5 should be returned
+            // even though initial overfetch = max_results * 10 = 10 is larger than
+            // the number of matches.
+            let mut docs: Vec<(String, String)> = Vec::new();
+            for i in 0..5 {
+                docs.push((format!("hit{i}"), "alpha".to_string()));
+            }
+            for i in 0..20 {
+                docs.push((format!("miss{i}"), format!("zzz_{i}_unrelated")));
+            }
+            let refs: Vec<(&str, &str)> =
+                docs.iter().map(|(i, b)| (i.as_str(), b.as_str())).collect();
+            let (_t, corpus) = build_corpus(&refs);
+            let req = SimilarityRequest {
+                text: "alpha".into(),
+                threshold: 0.95,
+                max_results: 1, // max_results * 10 = 10 initial overfetch
+                targets: vec![("default".into(), corpus)],
+                filter: None,
+                snippet_len: 0,
+                overfetch_cap: 10_000,
+            };
+            let resp = similarity_search(&MockEmbedder, &req).unwrap();
+            // max_results=1 caps output to 1 hit, but stats.above_threshold reports
+            // the full count we detected. We only know it's >= 1 and <= 5.
+            assert_eq!(resp.hits.len(), 1);
+            assert!(resp.stats.above_threshold >= 1);
+            assert!(!resp.truncated);
+        }
+
+        #[test]
+        fn truncated_flag_set_when_cap_hit() {
+            // 20 identical-matching docs, tiny cap -> every fetch keeps returning
+            // above-threshold tail. Cap terminates the loop -> truncated=true.
+            let docs: Vec<(String, String)> = (0..20)
+                .map(|i| (format!("d{i}"), "alpha".to_string()))
+                .collect();
+            let refs: Vec<(&str, &str)> =
+                docs.iter().map(|(i, b)| (i.as_str(), b.as_str())).collect();
+            let (_t, corpus) = build_corpus(&refs);
+            let req = SimilarityRequest {
+                text: "alpha".into(),
+                threshold: 0.5,
+                max_results: 100, // asks for 100; only 20 exist; adaptive loop chases
+                targets: vec![("default".into(), corpus)],
+                filter: None,
+                snippet_len: 0,
+                overfetch_cap: 5, // cap below corpus size
+            };
+            let resp = similarity_search(&MockEmbedder, &req).unwrap();
+            assert!(resp.truncated, "cap should trip the truncated flag");
+            assert!(resp.hits.len() <= 5, "at most cap rows ever fetched");
+        }
+
+        #[test]
+        fn filter_applied_before_threshold() {
+            // 4 docs with a `tag` metadata field; threshold alone matches all;
+            // filter keeps only tag="keep".
+            let tmp = tempfile::tempdir().unwrap();
+            let jsonl = tmp.path().join("docs.jsonl");
+            std::fs::write(
+                &jsonl,
+                concat!(
+                    r#"{"id":"a","body":"alpha","tag":"keep"}"#,
+                    "\n",
+                    r#"{"id":"b","body":"alpha","tag":"drop"}"#,
+                    "\n",
+                    r#"{"id":"c","body":"alpha","tag":"keep"}"#,
+                    "\n",
+                    r#"{"id":"d","body":"alpha","tag":"drop"}"#,
+                ),
+            )
+            .unwrap();
+            let corpus = tmp.path().join("corpus");
+            let cfg = JsonlIngestConfig {
+                text_fields: vec!["body".into()],
+                id_field: "id".into(),
+                metadata_fields: vec!["tag".into()],
+                metadata_types: BTreeMap::from([(
+                    "tag".into(),
+                    fastrag_store::schema::TypedKind::String,
+                )]),
+                array_fields: vec![],
+                cwe_field: None,
+            };
+            index_jsonl(
+                &jsonl,
+                &corpus,
+                &ChunkingStrategy::Basic {
+                    max_characters: 500,
+                    overlap: 0,
+                },
+                &MockEmbedder as &dyn fastrag_embed::DynEmbedderTrait,
+                &cfg,
+            )
+            .unwrap();
+
+            let req = SimilarityRequest {
+                text: "alpha".into(),
+                threshold: 0.5,
+                max_results: 10,
+                targets: vec![("default".into(), corpus)],
+                filter: Some(FilterExpr::Eq {
+                    field: "tag".into(),
+                    value: fastrag_store::schema::TypedValue::String("keep".into()),
+                }),
+                snippet_len: 0,
+                overfetch_cap: 10_000,
+            };
+            let resp = similarity_search(&MockEmbedder, &req).unwrap();
+            assert_eq!(resp.hits.len(), 2, "only tag=keep rows should survive");
+            for hit in &resp.hits {
+                let tag = hit.dto.metadata.get("tag");
+                assert!(
+                    matches!(tag, Some(fastrag_store::schema::TypedValue::String(s)) if s == "keep"),
+                    "hit metadata should carry tag=keep: {:?}",
+                    tag,
+                );
+            }
+        }
     }
 }
