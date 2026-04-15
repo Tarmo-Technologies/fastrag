@@ -1100,7 +1100,10 @@ fn index_store_path_inner(
                 .iter()
                 .filter_map(|field| {
                     let raw = file_metadata.get(field)?;
-                    let kind = metadata_types.get(field).copied().unwrap_or(TypedKind::String);
+                    let kind = metadata_types
+                        .get(field)
+                        .copied()
+                        .unwrap_or(TypedKind::String);
                     promote_string_to_typed(raw, kind).map(|tv| (field.clone(), tv))
                 })
                 .collect();
@@ -1141,8 +1144,7 @@ fn index_store_path_inner(
                 })
                 .collect();
 
-            let passages: Vec<PassageText> =
-                texts.iter().map(|t| PassageText::new(*t)).collect();
+            let passages: Vec<PassageText> = texts.iter().map(|t| PassageText::new(*t)).collect();
             let vectors = embedder
                 .embed_passage_dyn(&passages)
                 .map_err(|e| CorpusError::Embed(e.to_string()))?;

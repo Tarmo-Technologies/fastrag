@@ -247,12 +247,11 @@ fn extract_frontmatter(text: &str) -> Result<(Vec<(String, String)>, usize), Fas
         return Ok((Vec::new(), body_offset));
     }
 
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml_body).map_err(|e| {
-        FastRagError::Parse {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(yaml_body).map_err(|e| FastRagError::Parse {
             format: FileFormat::Markdown,
             message: format!("frontmatter YAML: {e}"),
-        }
-    })?;
+        })?;
 
     let mapping = match value {
         serde_yaml::Value::Mapping(m) => m,
@@ -406,7 +405,8 @@ mod tests {
 
     #[test]
     fn frontmatter_is_extracted_into_metadata_extra() {
-        let doc = parse_md("---\npublished_date: 2021-12-10\nseverity: high\n---\n# Title\n\nBody.\n");
+        let doc =
+            parse_md("---\npublished_date: 2021-12-10\nseverity: high\n---\n# Title\n\nBody.\n");
         assert_eq!(
             doc.metadata.extra.get("published_date").map(String::as_str),
             Some("2021-12-10")
@@ -443,10 +443,7 @@ mod tests {
         let parser = MarkdownParser;
         let source = SourceInfo::new(FileFormat::Markdown);
         let err = parser
-            .parse(
-                b"---\n: : bad\n: : other\n---\nBody\n",
-                &source,
-            )
+            .parse(b"---\n: : bad\n: : other\n---\nBody\n", &source)
             .unwrap_err();
         let msg = format!("{err}");
         assert!(
@@ -468,13 +465,13 @@ mod tests {
         let parser = MarkdownParser;
         let source = SourceInfo::new(FileFormat::Markdown);
         let err = parser
-            .parse(
-                b"---\nnested:\n  a: 1\n  b: 2\n---\nBody\n",
-                &source,
-            )
+            .parse(b"---\nnested:\n  a: 1\n  b: 2\n---\nBody\n", &source)
             .unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("nested"), "error mentions the offending key: {msg}");
+        assert!(
+            msg.contains("nested"),
+            "error mentions the offending key: {msg}"
+        );
     }
 
     #[test]

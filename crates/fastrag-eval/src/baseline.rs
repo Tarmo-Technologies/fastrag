@@ -441,7 +441,8 @@ mod bucket_diff_tests {
         let report = mk_report_v2(vec![mk_variant_with_bucket(0.9, 0.86)]);
         let diff = diff(&report, &baseline).unwrap();
         assert!(
-            !diff.regressions
+            !diff
+                .regressions
                 .iter()
                 .any(|r| r.metric.contains("style.identifier")),
             "should not flag bucket regression within slack, got {:?}",

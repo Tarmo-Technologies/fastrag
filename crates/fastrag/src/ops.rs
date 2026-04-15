@@ -10,8 +10,8 @@ use crate::{
 #[cfg(feature = "retrieval")]
 pub use crate::corpus::{
     CorpusError, CorpusIndexStats, CorpusInfo, QueryOpts, SearchHitDto, corpus_info, index_path,
-    index_path_with_metadata, index_path_with_metadata_typed, query_corpus, query_corpus_with_filter,
-    query_corpus_with_filter_opts,
+    index_path_with_metadata, index_path_with_metadata_typed, query_corpus,
+    query_corpus_with_filter, query_corpus_with_filter_opts,
 };
 #[cfg(feature = "rerank")]
 pub use crate::corpus::{query_corpus_reranked, query_corpus_reranked_opts};

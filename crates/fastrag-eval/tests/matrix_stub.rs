@@ -53,7 +53,10 @@ fn single_entry_gold_set() -> GoldSet {
             must_contain_cve_ids: vec!["CVE-2024-12345".into()],
             must_contain_terms: vec!["libfoo".into()],
             notes: None,
-            axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
+            axes: Axes {
+                style: Style::Identifier,
+                temporal_intent: TemporalIntent::Neutral,
+            },
         }],
     }
 }
@@ -68,7 +71,10 @@ fn multi_entry_gold_set() -> GoldSet {
                 must_contain_cve_ids: vec!["CVE-2024-12345".into()],
                 must_contain_terms: vec!["libfoo".into()],
                 notes: None,
-                axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
+                axes: Axes {
+                    style: Style::Identifier,
+                    temporal_intent: TemporalIntent::Neutral,
+                },
             },
             GoldSetEntry {
                 id: "q002".into(),
@@ -76,7 +82,10 @@ fn multi_entry_gold_set() -> GoldSet {
                 must_contain_cve_ids: vec!["CVE-2024-12345".into()],
                 must_contain_terms: vec![],
                 notes: None,
-                axes: Axes { style: Style::Identifier, temporal_intent: TemporalIntent::Neutral },
+                axes: Axes {
+                    style: Style::Identifier,
+                    temporal_intent: TemporalIntent::Neutral,
+                },
             },
             GoldSetEntry {
                 id: "q003".into(),
@@ -84,7 +93,10 @@ fn multi_entry_gold_set() -> GoldSet {
                 must_contain_cve_ids: vec![],
                 must_contain_terms: vec!["libfoo".into()],
                 notes: None,
-                axes: Axes { style: Style::Conceptual, temporal_intent: TemporalIntent::Neutral },
+                axes: Axes {
+                    style: Style::Conceptual,
+                    temporal_intent: TemporalIntent::Neutral,
+                },
             },
         ],
     }
