@@ -19,6 +19,7 @@ pub mod registry;
 pub use registry::CorpusRegistry;
 pub mod hybrid;
 pub mod similar;
+pub mod temporal;
 pub mod verify;
 pub use similar::{
     PerCorpusStats, SimilarityHit, SimilarityRequest, SimilarityResponse, SimilarityStats,
