@@ -144,6 +144,86 @@ pub fn diff(report: &MatrixReport, baseline: &Baseline) -> Result<BaselineDiff, 
     Ok(BaselineDiff { regressions })
 }
 
+/// Gates that enforce v1 temporal-decay contracts against a freshly-computed
+/// `MatrixReport`. Returns `Err` with a descriptive `EvalError::TemporalGate` on
+/// the first failing gate. Gates are skipped when a required variant is absent
+/// from the report.
+///
+/// 1. `TemporalAuto.historical.hit@5 ≥ Primary.historical.hit@5 − 0.02`
+/// 2. `TemporalAuto.neutral.hit@5 ≥ Primary.neutral.hit@5 − 0.01`
+/// 3. `TemporalAuto.recency_seeking.mrr@10 ≥ Primary.recency_seeking.mrr@10`
+/// 4. `TemporalOracle.recency_seeking.mrr@10 ≥ TemporalAuto.recency_seeking.mrr@10`
+pub fn enforce_temporal_gates(report: &MatrixReport) -> Result<(), EvalError> {
+    let hit5 = |v: ConfigVariant, bucket: &str| -> Option<f64> {
+        report
+            .runs
+            .iter()
+            .find(|r| r.variant == v)
+            .and_then(|r| r.buckets.get("temporal_intent"))
+            .and_then(|b| b.get(bucket))
+            .map(|m| m.hit_at_5)
+    };
+    let mrr10 = |v: ConfigVariant, bucket: &str| -> Option<f64> {
+        report
+            .runs
+            .iter()
+            .find(|r| r.variant == v)
+            .and_then(|r| r.buckets.get("temporal_intent"))
+            .and_then(|b| b.get(bucket))
+            .map(|m| m.mrr_at_10)
+    };
+
+    // Gate 1: abstain contract — historical regression ≤ 2pp.
+    if let (Some(p), Some(a)) = (
+        hit5(ConfigVariant::Primary, "historical"),
+        hit5(ConfigVariant::TemporalAuto, "historical"),
+    ) && a < p - 0.02
+    {
+        return Err(EvalError::TemporalGate(format!(
+            "TemporalAuto historical hit@5 regressed >2pp vs primary: \
+             primary={p:.4} auto={a:.4}"
+        )));
+    }
+
+    // Gate 2: abstain contract — neutral regression ≤ 1pp (tighter).
+    if let (Some(p), Some(a)) = (
+        hit5(ConfigVariant::Primary, "neutral"),
+        hit5(ConfigVariant::TemporalAuto, "neutral"),
+    ) && a < p - 0.01
+    {
+        return Err(EvalError::TemporalGate(format!(
+            "TemporalAuto neutral hit@5 regressed >1pp vs primary: \
+             primary={p:.4} auto={a:.4}"
+        )));
+    }
+
+    // Gate 3: directional improvement — recency_seeking mrr must not drop.
+    if let (Some(p), Some(a)) = (
+        mrr10(ConfigVariant::Primary, "recency_seeking"),
+        mrr10(ConfigVariant::TemporalAuto, "recency_seeking"),
+    ) && a < p
+    {
+        return Err(EvalError::TemporalGate(format!(
+            "TemporalAuto recency_seeking mrr@10 regressed vs primary: \
+             primary={p:.4} auto={a:.4}"
+        )));
+    }
+
+    // Gate 4: oracle is upper bound on TemporalAuto.
+    if let (Some(a), Some(o)) = (
+        mrr10(ConfigVariant::TemporalAuto, "recency_seeking"),
+        mrr10(ConfigVariant::TemporalOracle, "recency_seeking"),
+    ) && o < a
+    {
+        return Err(EvalError::TemporalGate(format!(
+            "TemporalOracle recency_seeking mrr@10 below TemporalAuto (upper-bound contract): \
+             auto={a:.4} oracle={o:.4}"
+        )));
+    }
+
+    Ok(())
+}
+
 fn check(
     out: &mut Vec<Regression>,
     variant: ConfigVariant,
@@ -312,6 +392,214 @@ mod tests {
         assert!(out.contains("Primary"));
         assert!(out.contains("hit@5"));
         assert!(out.contains("MRR@10"));
+    }
+}
+
+#[cfg(test)]
+mod temporal_gate_tests {
+    use super::*;
+    use crate::buckets::BucketMetrics;
+    use crate::matrix::{LatencyPercentiles, Percentiles, VariantReport};
+    use std::collections::BTreeMap;
+
+    fn zero_pct() -> LatencyPercentiles {
+        LatencyPercentiles {
+            total: Percentiles {
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+            },
+            embed: Percentiles {
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+            },
+            bm25: Percentiles {
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+            },
+            hnsw: Percentiles {
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+            },
+            rerank: Percentiles {
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+            },
+            fuse: Percentiles {
+                p50_us: 0,
+                p95_us: 0,
+                p99_us: 0,
+            },
+        }
+    }
+
+    fn bucket_metrics(hit5: f64, mrr: f64) -> BucketMetrics {
+        BucketMetrics {
+            hit_at_1: 0.0,
+            hit_at_5: hit5,
+            hit_at_10: hit5,
+            mrr_at_10: mrr,
+            n: 20,
+        }
+    }
+
+    fn variant_report(
+        variant: ConfigVariant,
+        temporal_buckets: BTreeMap<String, BucketMetrics>,
+    ) -> VariantReport {
+        let mut buckets: BTreeMap<String, BTreeMap<String, BucketMetrics>> = BTreeMap::new();
+        if !temporal_buckets.is_empty() {
+            buckets.insert("temporal_intent".into(), temporal_buckets);
+        }
+        VariantReport {
+            variant,
+            hit_at_1: 0.0,
+            hit_at_5: 0.0,
+            hit_at_10: 0.0,
+            mrr_at_10: 0.0,
+            latency: zero_pct(),
+            per_question: vec![],
+            buckets,
+        }
+    }
+
+    fn mk_report_v2(runs: Vec<VariantReport>) -> MatrixReport {
+        MatrixReport {
+            schema_version: 2,
+            git_rev: "x".into(),
+            captured_at: "x".into(),
+            runs,
+            rerank_delta: 0.0,
+            contextual_delta: 0.0,
+            hybrid_delta: 0.0,
+            summary: Default::default(),
+        }
+    }
+
+    fn mock_report_with_historical(primary_hit5: f64, auto_hit5: f64) -> MatrixReport {
+        let mut pb = BTreeMap::new();
+        pb.insert("historical".into(), bucket_metrics(primary_hit5, 0.5));
+        let mut ab = BTreeMap::new();
+        ab.insert("historical".into(), bucket_metrics(auto_hit5, 0.5));
+        mk_report_v2(vec![
+            variant_report(ConfigVariant::Primary, pb),
+            variant_report(ConfigVariant::TemporalAuto, ab),
+        ])
+    }
+
+    fn mock_report_with_neutral(primary_hit5: f64, auto_hit5: f64) -> MatrixReport {
+        let mut pb = BTreeMap::new();
+        pb.insert("neutral".into(), bucket_metrics(primary_hit5, 0.5));
+        let mut ab = BTreeMap::new();
+        ab.insert("neutral".into(), bucket_metrics(auto_hit5, 0.5));
+        mk_report_v2(vec![
+            variant_report(ConfigVariant::Primary, pb),
+            variant_report(ConfigVariant::TemporalAuto, ab),
+        ])
+    }
+
+    fn mock_report_with_recency_mrr_auto_vs_primary(
+        primary_mrr: f64,
+        auto_mrr: f64,
+    ) -> MatrixReport {
+        let mut pb = BTreeMap::new();
+        pb.insert("recency_seeking".into(), bucket_metrics(0.5, primary_mrr));
+        let mut ab = BTreeMap::new();
+        ab.insert("recency_seeking".into(), bucket_metrics(0.5, auto_mrr));
+        mk_report_v2(vec![
+            variant_report(ConfigVariant::Primary, pb),
+            variant_report(ConfigVariant::TemporalAuto, ab),
+        ])
+    }
+
+    fn mock_report_with_oracle_and_auto(auto_mrr: f64, oracle_mrr: f64) -> MatrixReport {
+        let mut ab = BTreeMap::new();
+        ab.insert("recency_seeking".into(), bucket_metrics(0.5, auto_mrr));
+        let mut ob = BTreeMap::new();
+        ob.insert("recency_seeking".into(), bucket_metrics(0.5, oracle_mrr));
+        // primary has same recency mrr as auto so gate 3 doesn't interfere
+        let mut pb = BTreeMap::new();
+        pb.insert("recency_seeking".into(), bucket_metrics(0.5, auto_mrr));
+        mk_report_v2(vec![
+            variant_report(ConfigVariant::Primary, pb),
+            variant_report(ConfigVariant::TemporalAuto, ab),
+            variant_report(ConfigVariant::TemporalOracle, ob),
+        ])
+    }
+
+    #[test]
+    fn temporal_auto_historical_regression_above_2pp_fails_gate() {
+        let report = mock_report_with_historical(1.0, 0.97);
+        let err = enforce_temporal_gates(&report).unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("historical"),
+            "err should mention historical: {err}"
+        );
+    }
+
+    #[test]
+    fn temporal_auto_historical_regression_within_2pp_passes_gate() {
+        let report = mock_report_with_historical(1.0, 0.985);
+        assert!(enforce_temporal_gates(&report).is_ok());
+    }
+
+    #[test]
+    fn temporal_auto_neutral_regression_above_1pp_fails_gate() {
+        let report = mock_report_with_neutral(0.90, 0.88);
+        let err = enforce_temporal_gates(&report).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("neutral"));
+    }
+
+    #[test]
+    fn temporal_auto_neutral_regression_within_1pp_passes_gate() {
+        let report = mock_report_with_neutral(0.90, 0.893);
+        assert!(enforce_temporal_gates(&report).is_ok());
+    }
+
+    #[test]
+    fn temporal_auto_recency_mrr_regression_fails_gate() {
+        let report = mock_report_with_recency_mrr_auto_vs_primary(0.60, 0.55);
+        let err = enforce_temporal_gates(&report).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("recency"));
+    }
+
+    #[test]
+    fn temporal_auto_recency_mrr_match_or_beat_primary_passes() {
+        let report = mock_report_with_recency_mrr_auto_vs_primary(0.60, 0.60);
+        assert!(enforce_temporal_gates(&report).is_ok());
+        let report2 = mock_report_with_recency_mrr_auto_vs_primary(0.60, 0.65);
+        assert!(enforce_temporal_gates(&report2).is_ok());
+    }
+
+    #[test]
+    fn oracle_recency_mrr_below_auto_fails_gate() {
+        let report = mock_report_with_oracle_and_auto(0.70, 0.65);
+        let err = enforce_temporal_gates(&report).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("oracle"));
+    }
+
+    #[test]
+    fn oracle_recency_mrr_at_or_above_auto_passes() {
+        let report = mock_report_with_oracle_and_auto(0.60, 0.60);
+        assert!(enforce_temporal_gates(&report).is_ok());
+        let report2 = mock_report_with_oracle_and_auto(0.60, 0.70);
+        assert!(enforce_temporal_gates(&report2).is_ok());
+    }
+
+    #[test]
+    fn missing_variants_skip_gates_without_error() {
+        // A report that only has Primary (no TemporalAuto, no TemporalOracle)
+        // must not fail the gate — gates only fire when the variant exists.
+        let mut pb = BTreeMap::new();
+        pb.insert("historical".into(), bucket_metrics(0.9, 0.8));
+        pb.insert("neutral".into(), bucket_metrics(0.9, 0.8));
+        pb.insert("recency_seeking".into(), bucket_metrics(0.9, 0.8));
+        let report = mk_report_v2(vec![variant_report(ConfigVariant::Primary, pb)]);
+        assert!(enforce_temporal_gates(&report).is_ok());
     }
 }
 

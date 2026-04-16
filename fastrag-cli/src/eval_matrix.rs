@@ -7,7 +7,7 @@ use fastrag_cli::embed_loader::{self, EmbedderOptions};
 use fastrag_cli::rerank_loader;
 use fastrag_eval::{
     EvalError,
-    baseline::{diff, load_baseline},
+    baseline::{diff, enforce_temporal_gates, load_baseline},
     gold_set,
     matrix::{ConfigVariant, run_matrix},
     matrix_real::RealCorpusDriver,
@@ -86,6 +86,7 @@ pub fn run_config_matrix(
         if bdiff.has_regressions() {
             std::process::exit(1);
         }
+        enforce_temporal_gates(&matrix_report)?;
     }
 
     Ok(())

@@ -69,6 +69,8 @@ pub enum EvalError {
     },
     #[error("baseline references variant {0:?} but report does not contain it")]
     BaselineVariantMissing(crate::matrix::ConfigVariant),
+    #[error("temporal gate violation: {0}")]
+    TemporalGate(String),
 }
 
 pub type EvalResult<T> = Result<T, EvalError>;
