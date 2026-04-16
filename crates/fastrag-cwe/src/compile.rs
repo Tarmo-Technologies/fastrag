@@ -16,17 +16,22 @@ pub enum CompileError {
     Xml(String),
     #[error("catalog version attribute missing")]
     MissingVersion,
+    #[error("cycle detected in CWE taxonomy between {0} and {1}")]
+    Cycle(u32, u32),
 }
 
 /// Parse a MITRE CWE XML catalog and build the descendant closure for `view_id`.
 /// `view_id` is the string "1000" for the Research View.
 pub fn build_closure(xml_bytes: &[u8], view_id: &str) -> Result<Taxonomy, CompileError> {
-    let (version, parents) = parse_catalog(xml_bytes, view_id)?;
-    let closure = compute_closure(&parents);
+    let (version, parents_in) = parse_catalog(xml_bytes, view_id)?;
+    detect_cycles(&parents_in)?;
+    let closure = compute_closure(&parents_in);
+    let parents_out = compute_parents(&parents_in);
     Ok(Taxonomy::from_components(
         version,
         view_id.to_string(),
         closure,
+        parents_out,
     ))
 }
 
@@ -138,6 +143,74 @@ fn compute_closure(parents: &HashMap<u32, Vec<u32>>) -> HashMap<u32, Vec<u32>> {
     }
 
     closures
+}
+
+/// Build the `parents` adjacency map for the serialized taxonomy from the
+/// same child→parents edge list we parsed out of the MITRE XML. Every node
+/// mentioned on either side of an edge gets an entry so roots serialize as
+/// empty arrays instead of vanishing.
+pub fn compute_parents(child_to_parents: &HashMap<u32, Vec<u32>>) -> HashMap<u32, Vec<u32>> {
+    let mut out: HashMap<u32, Vec<u32>> = HashMap::new();
+    for (&child, parents) in child_to_parents {
+        let entry = out.entry(child).or_default();
+        for &p in parents {
+            if !entry.contains(&p) {
+                entry.push(p);
+            }
+        }
+        for &p in parents {
+            out.entry(p).or_default();
+        }
+    }
+    out
+}
+
+/// Detect cycles in the child→parents adjacency. Returns
+/// `CompileError::Cycle(node, parent)` on the first back-edge found. Uses
+/// three-color DFS: WHITE unvisited, GRAY on the current stack, BLACK fully
+/// processed. A GRAY neighbour is a back-edge.
+pub fn detect_cycles(parents: &HashMap<u32, Vec<u32>>) -> Result<(), CompileError> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    let mut color: HashMap<u32, Color> = parents.keys().map(|&k| (k, Color::White)).collect();
+    // Include parent-only nodes so they show up in the color map.
+    for ps in parents.values() {
+        for &p in ps {
+            color.entry(p).or_insert(Color::White);
+        }
+    }
+
+    fn visit(
+        node: u32,
+        parents: &HashMap<u32, Vec<u32>>,
+        color: &mut HashMap<u32, Color>,
+    ) -> Result<(), CompileError> {
+        color.insert(node, Color::Gray);
+        if let Some(next) = parents.get(&node) {
+            for &p in next {
+                match color.get(&p).copied().unwrap_or(Color::White) {
+                    Color::Gray => return Err(CompileError::Cycle(node, p)),
+                    Color::White => visit(p, parents, color)?,
+                    Color::Black => {}
+                }
+            }
+        }
+        color.insert(node, Color::Black);
+        Ok(())
+    }
+
+    let starts: Vec<u32> = color.keys().copied().collect();
+    for start in starts {
+        if color.get(&start).copied().unwrap_or(Color::White) == Color::White {
+            visit(start, parents, &mut color)?;
+        }
+    }
+    Ok(())
 }
 
 fn local_name(name: &[u8]) -> &[u8] {

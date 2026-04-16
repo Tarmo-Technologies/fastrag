@@ -113,14 +113,16 @@ mod tests {
 
     fn tiny_taxonomy() -> Taxonomy {
         let json = r#"{
+            "schema_version": 2,
             "version": "test",
             "view": "1000",
             "closure": {
                 "89":  [89, 564, 943],
                 "79":  [79, 80, 81]
-            }
+            },
+            "parents": {}
         }"#;
-        Taxonomy::from_json(json.as_bytes()).unwrap()
+        Taxonomy::from_json(json).unwrap()
     }
 
     fn numeric_values(vs: &[TypedValue]) -> Vec<u32> {

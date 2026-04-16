@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use crate::Taxonomy;
 
-const TAXONOMY_BYTES: &[u8] = include_bytes!("../data/cwe-tree-v4.19.1.json");
+const TAXONOMY_JSON: &str = include_str!("../data/cwe-tree-v4.19.1.json");
 
 static TAXONOMY: OnceLock<Taxonomy> = OnceLock::new();
 
@@ -16,7 +16,7 @@ static TAXONOMY: OnceLock<Taxonomy> = OnceLock::new();
 /// the committed data is corrupt.
 pub fn embedded() -> &'static Taxonomy {
     TAXONOMY.get_or_init(|| {
-        Taxonomy::from_json(TAXONOMY_BYTES).expect("embedded CWE taxonomy must parse")
+        Taxonomy::from_json(TAXONOMY_JSON).expect("embedded CWE taxonomy must parse")
     })
 }
 
