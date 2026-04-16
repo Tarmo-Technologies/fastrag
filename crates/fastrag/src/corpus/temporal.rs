@@ -6,8 +6,13 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use chrono::{DateTime, NaiveDate, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+
+use fastrag_index::fusion::ScoredId;
+
+use crate::corpus::hybrid::{BlendMode, TemporalOpts, apply_decay};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,6 +173,49 @@ fn mask_cve_identifiers(query: &str) -> String {
     R.get_or_init(|| Regex::new(r"(?i)\bCVE-\d{4}-\d{4,}\b").unwrap())
         .replace_all(query, "___")
         .into_owned()
+}
+
+/// Resolve `TemporalPolicy` for one query and apply decay to `results`.
+///
+/// `results` is a slice of `(doc_id, score)` from the reranker. `dates`
+/// must be index-aligned with `results`. `detector` is consulted only when
+/// `policy == Auto`.
+pub fn apply_temporal_policy(
+    results: &[(u64, f32)],
+    policy: &TemporalPolicy,
+    query: &str,
+    detector: &dyn TemporalDetector,
+    dates: &[Option<NaiveDate>],
+    now: DateTime<Utc>,
+) -> Vec<(u64, f32)> {
+    let effective = match policy {
+        TemporalPolicy::Auto => detector.detect(query),
+        other => *other,
+    };
+    let strength = match effective {
+        TemporalPolicy::FavorRecent(s) => s,
+        _ => return results.to_vec(),
+    };
+
+    let opts = TemporalOpts {
+        date_fields: vec![],
+        halflife: strength.halflife(),
+        weight_floor: strength.weight_floor(),
+        dateless_prior: 1.0,
+        blend: BlendMode::Multiplicative,
+        now,
+    };
+
+    let fused: Vec<ScoredId> = results
+        .iter()
+        .map(|(id, score)| ScoredId {
+            id: *id,
+            score: *score,
+        })
+        .collect();
+
+    let decayed = apply_decay(&fused, dates, &opts);
+    decayed.into_iter().map(|s| (s.id, s.score)).collect()
 }
 
 #[cfg(test)]
@@ -355,6 +403,95 @@ mod regex_negative_tests {
         // bare `recent` / `recently` without a following security noun
         assert!(abstains("recently I was thinking"));
         assert!(abstains("a recent commit"));
+    }
+}
+
+#[cfg(test)]
+mod apply_policy_tests {
+    use super::*;
+    use chrono::{NaiveDate, TimeZone, Utc};
+
+    fn input() -> Vec<(u64, f32)> {
+        vec![(1, 0.9), (2, 0.5), (3, 0.3)]
+    }
+
+    fn dates() -> Vec<Option<NaiveDate>> {
+        vec![
+            Some(NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()),
+            Some(NaiveDate::from_ymd_opt(2021, 1, 1).unwrap()),
+            None,
+        ]
+    }
+
+    #[test]
+    fn off_policy_is_identity() {
+        let det = AbstainingRegexDetector::new();
+        let now = Utc.with_ymd_and_hms(2026, 4, 16, 0, 0, 0).unwrap();
+        let out = apply_temporal_policy(
+            &input(),
+            &TemporalPolicy::Off,
+            "anything",
+            &det,
+            &dates(),
+            now,
+        );
+        assert_eq!(out, input());
+    }
+
+    #[test]
+    fn auto_abstains_to_identity_for_neutral_query() {
+        let det = AbstainingRegexDetector::new();
+        let now = Utc.with_ymd_and_hms(2026, 4, 16, 0, 0, 0).unwrap();
+        let out = apply_temporal_policy(
+            &input(),
+            &TemporalPolicy::Auto,
+            "describe kerberoasting",
+            &det,
+            &dates(),
+            now,
+        );
+        assert_eq!(out, input());
+    }
+
+    #[test]
+    fn favor_recent_medium_decays_older_doc() {
+        let det = AbstainingRegexDetector::new();
+        let now = Utc.with_ymd_and_hms(2026, 4, 16, 0, 0, 0).unwrap();
+        let out = apply_temporal_policy(
+            &input(),
+            &TemporalPolicy::FavorRecent(Strength::Medium),
+            "anything",
+            &det,
+            &dates(),
+            now,
+        );
+        let s1 = out.iter().find(|(i, _)| *i == 1).unwrap().1;
+        let s2 = out.iter().find(|(i, _)| *i == 2).unwrap().1;
+        assert!(s1 > s2, "fresh doc must outrank old doc after decay");
+        assert!(
+            (s1 - 0.9).abs() < 0.05,
+            "fresh doc retains near-original score; got {s1}"
+        );
+        assert!(
+            s2 <= 0.5 * 0.60 + 1e-3,
+            "old doc must clamp at or below weight_floor * orig; got {s2}"
+        );
+    }
+
+    #[test]
+    fn auto_fires_for_recency_query() {
+        let det = AbstainingRegexDetector::new();
+        let now = Utc.with_ymd_and_hms(2026, 4, 16, 0, 0, 0).unwrap();
+        let out = apply_temporal_policy(
+            &input(),
+            &TemporalPolicy::Auto,
+            "latest Log4j advisory",
+            &det,
+            &dates(),
+            now,
+        );
+        let s2 = out.iter().find(|(i, _)| *i == 2).unwrap().1;
+        assert!(s2 < 0.5, "recency-intent query should decay old doc");
     }
 }
 
