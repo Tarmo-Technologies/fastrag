@@ -1,3 +1,4 @@
+pub mod bundle;
 #[cfg(feature = "retrieval")]
 pub mod corpus;
 #[cfg(feature = "store")]

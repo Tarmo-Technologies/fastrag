@@ -29,6 +29,7 @@ fastrag-context = { workspace = true, optional = true }
 fastrag-nvd = { workspace = true, optional = true }
 fastrag-cwe = { workspace = true }
 fastrag-store = { workspace = true, optional = true }
+arc-swap = "1.7"
 blake3 = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 humantime = { workspace = true, optional = true }
