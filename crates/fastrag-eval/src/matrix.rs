@@ -134,6 +134,15 @@ pub struct VariantReport {
     >,
 }
 
+/// Derived summary metrics for a `MatrixReport`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MatrixSummary {
+    /// `oracle(recency_seeking).mrr@10 − auto(recency_seeking).mrr@10`,
+    /// computed at report-build time when both variants ran. `None` otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_regret: Option<f64>,
+}
+
 /// Top-level matrix evaluation report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatrixReport {
@@ -147,6 +156,9 @@ pub struct MatrixReport {
     pub contextual_delta: f64,
     /// hit@5(Primary) − hit@5(DenseOnly): marginal value of BM25 fusion.
     pub hybrid_delta: f64,
+    /// Derived summary metrics (populated by `populate_summary`).
+    #[serde(default)]
+    pub summary: MatrixSummary,
 }
 
 impl MatrixReport {
@@ -156,6 +168,27 @@ impl MatrixReport {
             .iter()
             .find(|r| r.variant == variant)
             .map(|r| r.hit_at_5)
+    }
+
+    /// Derive summary metrics from the populated per-variant runs.
+    ///
+    /// Currently: `route_regret = oracle.mrr@10 − auto.mrr@10` on the
+    /// `temporal_intent.recency_seeking` bucket.
+    pub fn populate_summary(&mut self) {
+        let lookup_recency_mrr = |v: ConfigVariant| -> Option<f64> {
+            self.runs
+                .iter()
+                .find(|r| r.variant == v)
+                .and_then(|r| r.buckets.get("temporal_intent"))
+                .and_then(|b| b.get("recency_seeking"))
+                .map(|m| m.mrr_at_10)
+        };
+        let auto = lookup_recency_mrr(ConfigVariant::TemporalAuto);
+        let oracle = lookup_recency_mrr(ConfigVariant::TemporalOracle);
+        self.summary.route_regret = match (auto, oracle) {
+            (Some(a), Some(o)) => Some(o - a),
+            _ => None,
+        };
     }
 }
 
@@ -381,7 +414,7 @@ pub fn run_matrix<D: CorpusDriver>(
     let rev = git_rev().unwrap_or_else(|| "unknown".to_string());
     let captured_at = chrono::Utc::now().to_rfc3339();
 
-    Ok(MatrixReport {
+    let mut report = MatrixReport {
         schema_version: 2,
         git_rev: rev,
         captured_at,
@@ -389,7 +422,10 @@ pub fn run_matrix<D: CorpusDriver>(
         rerank_delta,
         contextual_delta,
         hybrid_delta,
-    })
+        summary: MatrixSummary::default(),
+    };
+    report.populate_summary();
+    Ok(report)
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -459,5 +495,97 @@ mod tests {
         assert_eq!(all.len(), 6);
         assert!(all.contains(&ConfigVariant::TemporalOracle));
         assert!(all.contains(&ConfigVariant::TemporalAuto));
+    }
+
+    // ── route_regret helpers ──────────────────────────────────────────────────
+
+    fn dummy_latency() -> LatencyPercentiles {
+        let p = Percentiles {
+            p50_us: 1,
+            p95_us: 1,
+            p99_us: 1,
+        };
+        LatencyPercentiles {
+            total: p.clone(),
+            embed: p.clone(),
+            bm25: p.clone(),
+            hnsw: p.clone(),
+            rerank: p.clone(),
+            fuse: p,
+        }
+    }
+
+    fn make_variant_report_with_recency_mrr(variant: ConfigVariant, mrr: f64) -> VariantReport {
+        let mut ti_buckets = std::collections::BTreeMap::new();
+        ti_buckets.insert(
+            "recency_seeking".to_string(),
+            crate::buckets::BucketMetrics {
+                n: 1,
+                hit_at_1: 1.0,
+                hit_at_5: 1.0,
+                hit_at_10: 1.0,
+                mrr_at_10: mrr,
+            },
+        );
+        let mut buckets = std::collections::BTreeMap::new();
+        buckets.insert("temporal_intent".to_string(), ti_buckets);
+
+        VariantReport {
+            variant,
+            hit_at_1: 0.0,
+            hit_at_5: 0.0,
+            hit_at_10: 0.0,
+            mrr_at_10: 0.0,
+            latency: dummy_latency(),
+            per_question: vec![],
+            buckets,
+        }
+    }
+
+    fn minimal_report(runs: Vec<VariantReport>) -> MatrixReport {
+        MatrixReport {
+            schema_version: 2,
+            git_rev: "test".to_string(),
+            captured_at: "2026-01-01T00:00:00Z".to_string(),
+            runs,
+            rerank_delta: 0.0,
+            contextual_delta: 0.0,
+            hybrid_delta: 0.0,
+            summary: MatrixSummary::default(),
+        }
+    }
+
+    #[test]
+    fn route_regret_populated_when_both_variants_present() {
+        let mut report = minimal_report(vec![
+            make_variant_report_with_recency_mrr(ConfigVariant::TemporalAuto, 0.5),
+            make_variant_report_with_recency_mrr(ConfigVariant::TemporalOracle, 0.7),
+        ]);
+        report.populate_summary();
+        let got = report
+            .summary
+            .route_regret
+            .expect("oracle-minus-auto should be populated");
+        assert!((got - 0.2).abs() < 1e-9, "expected 0.2, got {got}");
+    }
+
+    #[test]
+    fn route_regret_absent_when_oracle_missing() {
+        let mut report = minimal_report(vec![make_variant_report_with_recency_mrr(
+            ConfigVariant::TemporalAuto,
+            0.5,
+        )]);
+        report.populate_summary();
+        assert_eq!(report.summary.route_regret, None);
+    }
+
+    #[test]
+    fn route_regret_absent_when_auto_missing() {
+        let mut report = minimal_report(vec![make_variant_report_with_recency_mrr(
+            ConfigVariant::TemporalOracle,
+            0.7,
+        )]);
+        report.populate_summary();
+        assert_eq!(report.summary.route_regret, None);
     }
 }

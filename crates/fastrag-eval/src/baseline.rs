@@ -219,6 +219,7 @@ mod tests {
             rerank_delta: 0.0,
             contextual_delta: 0.0,
             hybrid_delta: 0.0,
+            summary: Default::default(),
         }
     }
 
@@ -415,6 +416,7 @@ mod bucket_diff_tests {
             rerank_delta: 0.0,
             contextual_delta: 0.0,
             hybrid_delta: 0.0,
+            summary: Default::default(),
         }
     }
 

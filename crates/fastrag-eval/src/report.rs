@@ -176,6 +176,7 @@ mod tests {
             rerank_delta: 0.08,
             contextual_delta: 0.11,
             hybrid_delta: 0.17,
+            summary: Default::default(),
         };
         let tmp = tempfile::NamedTempFile::new().unwrap();
         write_matrix_report(&r, tmp.path()).unwrap();
