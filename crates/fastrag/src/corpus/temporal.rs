@@ -33,6 +33,62 @@ impl Strength {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemporalPolicy {
+    #[default]
+    Auto,
+    Off,
+    FavorRecent(Strength),
+}
+
+#[cfg(test)]
+mod policy_serde_tests {
+    use super::*;
+
+    #[test]
+    fn auto_serializes_as_string() {
+        let v = TemporalPolicy::Auto;
+        assert_eq!(serde_json::to_string(&v).unwrap(), "\"auto\"");
+    }
+
+    #[test]
+    fn off_serializes_as_string() {
+        let v = TemporalPolicy::Off;
+        assert_eq!(serde_json::to_string(&v).unwrap(), "\"off\"");
+    }
+
+    #[test]
+    fn favor_recent_serializes_as_tagged_object() {
+        let v = TemporalPolicy::FavorRecent(Strength::Medium);
+        assert_eq!(
+            serde_json::to_string(&v).unwrap(),
+            r#"{"favor_recent":"medium"}"#
+        );
+    }
+
+    #[test]
+    fn auto_is_default() {
+        let v: TemporalPolicy = Default::default();
+        assert!(matches!(v, TemporalPolicy::Auto));
+    }
+
+    #[test]
+    fn deserialize_round_trip() {
+        for p in [
+            TemporalPolicy::Auto,
+            TemporalPolicy::Off,
+            TemporalPolicy::FavorRecent(Strength::Light),
+            TemporalPolicy::FavorRecent(Strength::Medium),
+            TemporalPolicy::FavorRecent(Strength::Strong),
+        ] {
+            let s = serde_json::to_string(&p).unwrap();
+            let back: TemporalPolicy = serde_json::from_str(&s).unwrap();
+            assert_eq!(p, back);
+        }
+    }
+}
+
 #[cfg(test)]
 mod strength_tests {
     use super::*;
