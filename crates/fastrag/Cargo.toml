@@ -32,7 +32,7 @@ fastrag-store = { workspace = true, optional = true }
 blake3 = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 humantime = { workspace = true, optional = true }
-regex = { workspace = true, optional = true }
+regex = { workspace = true }
 whatlang = { version = "0.16", optional = true }
 rayon = { workspace = true, optional = true }
 thiserror.workspace = true
@@ -73,5 +73,5 @@ rerank-llama = ["rerank", "fastrag-rerank/llama-cpp"]
 contextual = ["retrieval", "dep:fastrag-context", "dep:blake3"]
 contextual-llama = ["contextual", "fastrag-context/llama-cpp"]
 nvd = ["dep:fastrag-nvd"]
-hygiene = ["language-detection", "fastrag-core/language-detection", "dep:regex", "dep:whatlang"]
+hygiene = ["language-detection", "fastrag-core/language-detection", "dep:whatlang"]
 store = ["dep:fastrag-store", "dep:blake3", "dep:chrono", "dep:fastrag-embed", "dep:fastrag-index"]

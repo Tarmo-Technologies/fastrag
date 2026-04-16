@@ -3,8 +3,10 @@
 //!
 //! See `docs/superpowers/specs/2026-04-16-query-conditional-temporal-decay-design.md`.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +71,90 @@ impl TemporalDetector for OracleDetector {
         match self.intent {
             Some(TemporalIntent::RecencySeeking) => TemporalPolicy::FavorRecent(Strength::Medium),
             _ => TemporalPolicy::Off,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AbstainingRegexDetector
+// ---------------------------------------------------------------------------
+
+fn keyword_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(latest|newest|current(?:ly)?|newer)\b(?:\W+\w+){0,6}\W+(advisory|exploit|bypass|cve|disclosure|vulnerabilit(?:y|ies)|patch|guidance|kev|mitigation|poc)\b",
+        )
+        .unwrap()
+    })
+}
+
+fn recent_plus_noun_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)\brecent(?:ly)?\b(?:\W+\w+){0,4}\W+(advisory|exploit|bypass|cve|disclosure|vulnerabilit(?:y|ies)|patch|guidance)\b",
+        )
+        .unwrap()
+    })
+}
+
+fn still_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(r"(?i)\bstill\s+(exploited|in\s+kev|vulnerable|unpatched)\b").unwrap()
+    })
+}
+
+fn as_of_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r"(?i)\bas\s+of\s+(today|now|this\s+(week|month))\b").unwrap())
+}
+
+fn this_week_month_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r"(?i)\bthis\s+(week|month)\b").unwrap())
+}
+
+fn year_2026_plus_noun_re() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:\b2026\b(?:\W+\w+){0,4}\W+(cve|vulnerabilit(?:y|ies)|advisory|disclosure|exploit|poc|mitigation|patch)\b|\b(cve|vulnerabilit(?:y|ies)|advisory|disclosure|exploit|poc|mitigation|patch)\b(?:\W+\w+){0,4}\W+\b2026\b)",
+        )
+        .unwrap()
+    })
+}
+
+/// Recognises high-precision recency signals and returns
+/// `FavorRecent(Medium)` on a hit, `Off` otherwise. Never emits `Auto` or
+/// a historical policy — historical queries are simply `Off`.
+pub struct AbstainingRegexDetector;
+
+impl AbstainingRegexDetector {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for AbstainingRegexDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TemporalDetector for AbstainingRegexDetector {
+    fn detect(&self, query: &str) -> TemporalPolicy {
+        let fires = keyword_re().is_match(query)
+            || recent_plus_noun_re().is_match(query)
+            || still_re().is_match(query)
+            || as_of_re().is_match(query)
+            || this_week_month_re().is_match(query)
+            || year_2026_plus_noun_re().is_match(query);
+        if fires {
+            TemporalPolicy::FavorRecent(Strength::Medium)
+        } else {
+            TemporalPolicy::Off
         }
     }
 }
@@ -150,6 +236,61 @@ mod strength_tests {
             Duration::from_secs(60 * 86_400)
         );
         assert!((Strength::Strong.weight_floor() - 0.45).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod regex_positive_tests {
+    use super::*;
+
+    fn fires(query: &str) -> bool {
+        matches!(
+            AbstainingRegexDetector::new().detect(query),
+            TemporalPolicy::FavorRecent(Strength::Medium)
+        )
+    }
+
+    #[test]
+    fn latest_keyword() {
+        assert!(fires("latest Log4j advisory"));
+        assert!(fires("newest CVE in KEV"));
+        assert!(fires("current mitigation for Shellshock"));
+        assert!(fires("newer bypass for PrintNightmare"));
+    }
+
+    #[test]
+    fn recent_plus_security_noun() {
+        assert!(fires("recent advisory for PyYAML"));
+        assert!(fires("recently disclosed CVE in libxml2"));
+        assert!(fires("recent patch for sudoedit"));
+    }
+
+    #[test]
+    fn still_exploited_family() {
+        assert!(fires("is Heartbleed still exploited in 2026"));
+        assert!(fires("CVE-2021-44228 still in KEV"));
+        assert!(fires("still unpatched on Ubuntu LTS"));
+    }
+
+    #[test]
+    fn as_of_now_variants() {
+        assert!(fires("as of today, what is the fix"));
+        assert!(fires("as of now any known exploits"));
+        assert!(fires("as of this week is it patched"));
+        assert!(fires("as of this month how bad is it"));
+    }
+
+    #[test]
+    fn this_week_this_month() {
+        assert!(fires("what dropped this week"));
+        assert!(fires("advisories this month"));
+    }
+
+    #[test]
+    fn current_year_plus_security_noun() {
+        assert!(fires("2026 CVE for libsqlite"));
+        assert!(fires("2026 advisory NVD"));
+        assert!(fires("2026 mitigation guidance"));
     }
 }
 
