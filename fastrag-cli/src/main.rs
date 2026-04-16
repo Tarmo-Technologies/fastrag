@@ -577,6 +577,7 @@ async fn main() {
                 let query_opts = ops::QueryOpts {
                     cwe_expand: cwe_expand_effective,
                     hybrid: hybrid_opts,
+                    ..Default::default()
                 };
 
                 #[cfg(feature = "rerank")]

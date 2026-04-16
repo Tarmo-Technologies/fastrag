@@ -989,9 +989,25 @@ fn run_query(
 
     let _ = state.dense_only; // dense_only is a server-level flag; per-request hybrid opts take precedence
 
+    // If the caller supplied a time_decay_field, bridge it into the new
+    // late-stage temporal policy path.  Default to FavorRecent(Medium); the
+    // legacy halflife/weight/prior/blend params are accepted for compatibility
+    // but the strength ladder governs the new path.
+    let (temporal_policy, date_fields) = match &params.time_decay_field {
+        Some(field) => (
+            fastrag::corpus::temporal::TemporalPolicy::FavorRecent(
+                fastrag::corpus::temporal::Strength::Medium,
+            ),
+            vec![field.clone()],
+        ),
+        None => (Default::default(), vec![]),
+    };
+
     let query_opts = ops::QueryOpts {
         cwe_expand: params.cwe_expand.unwrap_or(state.cwe_expand_default),
         hybrid,
+        temporal_policy,
+        date_fields,
     };
 
     #[cfg(feature = "rerank")]

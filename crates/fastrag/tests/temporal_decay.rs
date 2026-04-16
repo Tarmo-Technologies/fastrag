@@ -1,29 +1,20 @@
-//! End-to-end: post-fusion multiplicative decay promotes fresh docs over
-//! equally-relevant stale docs, and a dateless prior of 0.5 lands the
-//! undated doc between them.
-//!
-//! # Ignored tests (Task 8 → Task 9)
-//!
-//! The following tests relied on pre-rerank decay inside `query_hybrid`.
-//! That branch was removed in Task 8; Task 9 restores equivalent coverage
-//! via late injection (post-rerank) through `apply_temporal_policy`.
-//!
-//! - `decay_promotes_fresh_over_equally_relevant_stale`
+//! End-to-end: post-rerank multiplicative decay promotes fresh docs over
+//! equally-relevant stale docs.
 #![cfg(feature = "store")]
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 
-use chrono::{TimeZone, Utc};
 use fastrag::ChunkingStrategy;
-use fastrag::corpus::hybrid::{BlendMode, HybridOpts, TemporalOpts};
-use fastrag::corpus::{LatencyBreakdown, QueryOpts, query_corpus_with_filter_opts};
+use fastrag::corpus::hybrid::HybridOpts;
+use fastrag::corpus::temporal::{Strength, TemporalPolicy};
+use fastrag::corpus::{LatencyBreakdown, QueryOpts, query_corpus_reranked_opts};
 use fastrag::ingest::engine::index_jsonl;
 use fastrag::ingest::jsonl::JsonlIngestConfig;
 use fastrag_embed::DynEmbedderTrait;
 use fastrag_embed::test_utils::MockEmbedder;
+use fastrag_rerank::test_utils::MockReranker;
 use fastrag_store::schema::TypedKind;
 
 fn write_fixture(path: &Path) {
@@ -56,8 +47,8 @@ fn chunking() -> ChunkingStrategy {
     }
 }
 
+#[cfg(feature = "rerank")]
 #[test]
-#[ignore = "relies on pre-rerank decay — restored by late injection in Task 9"]
 fn decay_promotes_fresh_over_equally_relevant_stale() {
     let tmp = tempfile::tempdir().unwrap();
     let corpus = tmp.path().join("corpus");
@@ -74,33 +65,27 @@ fn decay_promotes_fresh_over_equally_relevant_stale() {
     )
     .unwrap();
 
-    // Hybrid on, multiplicative decay anchored at 2026-04-14 with 30d halflife.
-    // Age(B) = 13d → factor ≈ 0.3 + 0.7 * 2^(-13/30) ≈ 0.82.
-    // Age(A) = 3756d → factor saturates to floor 0.3.
-    // C (dateless) → prior 0.5.
+    // Late-stage temporal decay via query_corpus_reranked_opts.
+    // FavorRecent(Medium) → 180d halflife, 0.60 floor.
+    // Age(B) ≈ 15d → factor near 1.0.
+    // Age(A) = ~3756d → factor saturates to floor 0.60.
+    // C (dateless) → prior 1.0 (score unchanged).
     let opts = QueryOpts {
-        hybrid: HybridOpts {
-            enabled: true,
-            rrf_k: 60,
-            overfetch_factor: 4,
-            temporal: Some(TemporalOpts {
-                date_fields: vec!["published_date".into()],
-                halflife: Duration::from_secs(30 * 86_400),
-                weight_floor: 0.3,
-                dateless_prior: 0.5,
-                blend: BlendMode::Multiplicative,
-                now: Utc.with_ymd_and_hms(2026, 4, 14, 0, 0, 0).unwrap(),
-            }),
-        },
+        hybrid: HybridOpts::default(),
+        temporal_policy: TemporalPolicy::FavorRecent(Strength::Medium),
+        date_fields: vec!["published_date".into()],
         ..Default::default()
     };
 
+    let reranker = MockReranker;
     let mut bd = LatencyBreakdown::default();
-    let hits = query_corpus_with_filter_opts(
+    let hits = query_corpus_reranked_opts(
         &corpus,
         "openssl heap overflow",
         3,
+        4,
         &embedder as &dyn DynEmbedderTrait,
+        &reranker as &dyn fastrag_rerank::Reranker,
         None,
         &opts,
         &mut bd,
@@ -110,19 +95,29 @@ fn decay_promotes_fresh_over_equally_relevant_stale() {
 
     assert_eq!(hits.len(), 3, "expected 3 hits, got {}", hits.len());
 
-    // Strong assertion: fresh (id=B, "recent") outranks dateless (id=C,
-    // "dateless") outranks stale (id=A, "legacy").
-    let texts: Vec<&str> = hits.iter().map(|h| h.chunk_text.as_str()).collect();
+    // Find scores by doc discriminator.
+    let fresh_score = hits
+        .iter()
+        .find(|h| h.chunk_text.contains("recent"))
+        .map(|h| h.score)
+        .expect("recent doc missing");
+    let old_score = hits
+        .iter()
+        .find(|h| h.chunk_text.contains("legacy"))
+        .map(|h| h.score)
+        .expect("legacy doc missing");
+
+    // Strong assertion: fresh doc outranks stale after decay.
     assert!(
-        texts[0].contains("recent"),
-        "hits[0] should be fresh ('recent'); got {texts:?}"
+        fresh_score > old_score,
+        "fresh doc must outrank stale doc; fresh={fresh_score} old={old_score}"
     );
+
+    // Old doc score must be at or below floor * reranker_score.
+    // MockReranker assigns 3.0 to all (same 3-token overlap), floor=0.60.
+    let expected_max_old = 3.0 * 0.60 + 1e-3;
     assert!(
-        texts[1].contains("dateless"),
-        "hits[1] should be dateless ('dateless'); got {texts:?}"
-    );
-    assert!(
-        texts[2].contains("legacy"),
-        "hits[2] should be stale ('legacy'); got {texts:?}"
+        old_score <= expected_max_old,
+        "old doc must be at or below floor * reranker_score ({expected_max_old}); got {old_score}"
     );
 }

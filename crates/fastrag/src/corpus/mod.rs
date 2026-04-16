@@ -38,6 +38,13 @@ pub struct QueryOpts {
     /// Hybrid retrieval (BM25 + dense RRF) with optional temporal decay.
     /// When `enabled == false` (the default), the query path is dense-only.
     pub hybrid: crate::corpus::hybrid::HybridOpts,
+
+    /// Per-query temporal policy. Default is `Auto` (abstaining detector).
+    pub temporal_policy: crate::corpus::temporal::TemporalPolicy,
+
+    /// Ordered list of metadata field names to try for per-doc dates.
+    /// Empty disables decay even when policy is non-Off.
+    pub date_fields: Vec<String>,
 }
 
 /// Options that opt a single `index_path_with_metadata` run into Contextual
@@ -1367,7 +1374,55 @@ pub fn query_corpus_with_filter_opts(
         };
         breakdown.finalize();
 
-        return scored_ids_to_dtos(&store, &scored, Some(query), snippet_len);
+        let mut dtos = scored_ids_to_dtos(&store, &scored, Some(query), snippet_len)?;
+
+        // ── Late-stage temporal decay (non-reranked path) ────────────────
+        if !opts.date_fields.is_empty()
+            && !matches!(
+                opts.temporal_policy,
+                crate::corpus::temporal::TemporalPolicy::Off
+            )
+        {
+            use crate::corpus::hybrid::extract_date_coalesce;
+            use crate::corpus::temporal::{AbstainingRegexDetector, apply_temporal_policy};
+
+            let dates: Vec<Option<chrono::NaiveDate>> = dtos
+                .iter()
+                .map(|dto| {
+                    let fields: Vec<(String, fastrag_store::schema::TypedValue)> = dto
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    extract_date_coalesce(&fields, &opts.date_fields)
+                })
+                .collect();
+
+            let pairs: Vec<(u64, f32)> = dtos
+                .iter()
+                .enumerate()
+                .map(|(i, dto)| (i as u64, dto.score))
+                .collect();
+            let detector = AbstainingRegexDetector::new();
+            let decayed = apply_temporal_policy(
+                &pairs,
+                &opts.temporal_policy,
+                query,
+                &detector,
+                &dates,
+                chrono::Utc::now(),
+            );
+
+            let score_by_idx: std::collections::HashMap<u64, f32> = decayed.into_iter().collect();
+            for (i, dto) in dtos.iter_mut().enumerate() {
+                if let Some(s) = score_by_idx.get(&(i as u64)) {
+                    dto.score = *s;
+                }
+            }
+            dtos.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+        }
+
+        return Ok(dtos);
     }
 
     // ── Filtered path: adaptive overfetch ────────────────────────────────
@@ -1684,6 +1739,52 @@ pub fn query_corpus_reranked_opts(
     breakdown.rerank_us = t.elapsed().as_micros() as u64;
 
     reranked.truncate(top_k);
+
+    // ── Late-stage temporal decay ────────────────────────────────────
+    #[cfg(feature = "store")]
+    if !opts.date_fields.is_empty()
+        && !matches!(
+            opts.temporal_policy,
+            crate::corpus::temporal::TemporalPolicy::Off
+        )
+    {
+        use crate::corpus::hybrid::extract_date_coalesce;
+        use crate::corpus::temporal::{AbstainingRegexDetector, apply_temporal_policy};
+
+        let dates: Vec<Option<chrono::NaiveDate>> = reranked
+            .iter()
+            .map(|rh| {
+                first_stage.get(rh.id as usize).and_then(|dto| {
+                    let fields: Vec<(String, fastrag_store::schema::TypedValue)> = dto
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    extract_date_coalesce(&fields, &opts.date_fields)
+                })
+            })
+            .collect();
+
+        let pairs: Vec<(u64, f32)> = reranked.iter().map(|rh| (rh.id, rh.score)).collect();
+        let detector = AbstainingRegexDetector::new();
+        let decayed = apply_temporal_policy(
+            &pairs,
+            &opts.temporal_policy,
+            query,
+            &detector,
+            &dates,
+            chrono::Utc::now(),
+        );
+
+        let score_by_id: std::collections::HashMap<u64, f32> = decayed.into_iter().collect();
+        for rh in reranked.iter_mut() {
+            if let Some(s) = score_by_id.get(&rh.id) {
+                rh.score = *s;
+            }
+        }
+        reranked.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
+    }
+
     breakdown.finalize();
 
     // Map RerankHit back to SearchHitDto (scores updated by reranker)
