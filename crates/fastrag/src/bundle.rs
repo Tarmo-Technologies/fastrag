@@ -121,7 +121,6 @@ pub fn validate_layout(root: &Path) -> Result<BundleManifest, BundleError> {
     let manifest = parse_manifest(&manifest_str)?;
 
     for corpus in &manifest.corpora {
-        let corpus: &str = corpus;
         let dir = root.join("corpora").join(corpus);
         if !dir.is_dir() {
             return Err(BundleError::CorpusMissing(corpus.to_string()));
@@ -163,7 +162,6 @@ impl BundleState {
 
         let mut corpora: HashMap<String, Arc<Corpus>> = HashMap::new();
         for name in &manifest.corpora {
-            let name: &str = name;
             let dir = root.join("corpora").join(name);
             let corpus = Corpus::open(&dir)
                 .map_err(|e| BundleError::CorpusMissing(format!("{name}: {e}")))?;
