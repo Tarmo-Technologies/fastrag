@@ -6,7 +6,8 @@
 #   2. Emit CWE + KEV JSONL.
 #   3. Run `fastrag index` → corpora/cwe and corpora/kev.
 #   4. Copy CWE taxonomy artifact.
-#   5. Write bundle.json manifest.
+#   5. (Optional) Ingest vams-findings JSONL into corpora/vams-findings.
+#   6. Write bundle.json manifest.
 #
 # Prerequisites:
 #   - `cargo build --release` has produced target/release/fastrag.
@@ -71,7 +72,22 @@ rm -rf "$BUNDLE_DIR/corpora/cwe" "$BUNDLE_DIR/corpora/kev"
 # 4. Taxonomy (compiled closure JSON — already in the repo)
 cp crates/fastrag-cwe/data/cwe-tree-v4.19.1.json "$BUNDLE_DIR/taxonomy/cwe-taxonomy.json"
 
-# 5. Manifest
+# 5. vams-findings (optional — skip if JSONL not present, e.g. Track C not yet complete)
+VAMS_FINDINGS_JSONL="${VAMS_FINDINGS_JSONL:-../vams/data/synthetic-findings/all.jsonl}"
+if [[ -f "$VAMS_FINDINGS_JSONL" ]]; then
+  rm -rf "$BUNDLE_DIR/corpora/vams-findings"
+  "$FASTRAG" index "$VAMS_FINDINGS_JSONL" \
+      --corpus "$BUNDLE_DIR/corpora/vams-findings" \
+      --embedder bge \
+      --format jsonl \
+      --preset tarmo-finding \
+      --metadata-fields origin,language,ai_confidence,ai_reasoning,analyst_outcome,analyst_confidence,rejection_reason,rejection_reason_text,synthesis_source
+  echo "vams-findings corpus ready"
+else
+  echo "skipping vams-findings (no JSONL at $VAMS_FINDINGS_JSONL)"
+fi
+
+# 6. Manifest
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 KEV_SHA="$(cat "$DATA_DIR/kev.sha256")"
 cat > "$BUNDLE_DIR/bundle.json" <<EOF
