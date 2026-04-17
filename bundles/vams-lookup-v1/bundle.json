@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "bundle_id": "vams-lookup-v1",
+  "built_at": "2026-04-17T04:22:22Z",
+  "corpora": ["cwe", "kev"],
+  "taxonomy": "cwe-taxonomy.json",
+  "sources": {
+    "cwe": {"type": "mitre-xml", "path": "data/cwec_v4.19.1.xml"},
+    "kev": {"type": "cisa-feed", "sha256": "054951511c494571f240615a9e40c4b7f8e5a1d8101a5b274659054528fea888"}
+  }
+}

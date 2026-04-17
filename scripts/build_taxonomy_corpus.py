@@ -115,3 +115,28 @@ def emit_kev_jsonl(source: Path, dest: Path) -> int:
             fh.write(json.dumps(record) + "\n")
             count += 1
     return count
+
+
+def main() -> None:
+    import argparse
+    p = argparse.ArgumentParser(
+        description="Emit CWE + KEV JSONL for fastrag bundle ingest."
+    )
+    p.add_argument("--cwe-xml", type=Path, required=True,
+                   help="MITRE CWE XML catalog")
+    p.add_argument("--cwe-out", type=Path, required=True,
+                   help="Output JSONL for CWE records")
+    p.add_argument("--kev-catalog", type=Path, required=True,
+                   help="CISA KEV JSON catalog")
+    p.add_argument("--kev-out", type=Path, required=True,
+                   help="Output JSONL for KEV records")
+    args = p.parse_args()
+
+    n_cwe = emit_cwe_jsonl(args.cwe_xml, args.cwe_out)
+    n_kev = emit_kev_jsonl(args.kev_catalog, args.kev_out)
+    print(f"wrote {n_cwe} CWEs to {args.cwe_out}")
+    print(f"wrote {n_kev} KEV entries to {args.kev_out}")
+
+
+if __name__ == "__main__":
+    main()
