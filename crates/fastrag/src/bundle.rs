@@ -26,7 +26,7 @@ use thiserror::Error;
 
 use fastrag_cwe::Taxonomy;
 
-const REQUIRED_CORPORA: [&str; 3] = ["cve", "cwe", "kev"];
+// Required corpora are declared in bundle.json (manifest.corpora), not fixed at compile time.
 const BUNDLE_SCHEMA_VERSION: u32 = 1;
 
 /// Contents of `bundle.json` at the bundle root.
@@ -101,6 +101,11 @@ pub fn parse_manifest(json: &str) -> Result<BundleManifest, BundleError> {
             found: m.schema_version,
         });
     }
+    if m.corpora.is_empty() {
+        return Err(BundleError::CorpusMissing(
+            "<none declared in manifest>".into(),
+        ));
+    }
     Ok(m)
 }
 
@@ -115,7 +120,8 @@ pub fn validate_layout(root: &Path) -> Result<BundleManifest, BundleError> {
     let manifest_str = std::fs::read_to_string(&manifest_path)?;
     let manifest = parse_manifest(&manifest_str)?;
 
-    for corpus in REQUIRED_CORPORA {
+    for corpus in &manifest.corpora {
+        let corpus: &str = corpus;
         let dir = root.join("corpora").join(corpus);
         if !dir.is_dir() {
             return Err(BundleError::CorpusMissing(corpus.to_string()));
@@ -156,7 +162,8 @@ impl BundleState {
         let taxonomy = Arc::new(Taxonomy::from_json(&tax_json)?);
 
         let mut corpora: HashMap<String, Arc<Corpus>> = HashMap::new();
-        for name in REQUIRED_CORPORA {
+        for name in &manifest.corpora {
+            let name: &str = name;
             let dir = root.join("corpora").join(name);
             let corpus = Corpus::open(&dir)
                 .map_err(|e| BundleError::CorpusMissing(format!("{name}: {e}")))?;
@@ -337,6 +344,37 @@ mod tests {
         assert!(state.corpora.contains_key("kev"));
         assert_eq!(state.corpora["cve"].dir(), root.join("corpora/cve"));
         assert_eq!(state.taxonomy.version(), "4.15");
+    }
+
+    #[test]
+    fn parse_manifest_rejects_empty_corpora() {
+        let json = r#"{"schema_version":1,"bundle_id":"b","built_at":"t",
+                       "corpora":[],"taxonomy":"t.json"}"#;
+        let err = parse_manifest(json).unwrap_err();
+        assert!(matches!(err, BundleError::CorpusMissing(_)));
+    }
+
+    #[test]
+    fn validate_layout_accepts_manifest_declared_corpora() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(
+            root.join("bundle.json"),
+            r#"{
+                "schema_version": 1, "bundle_id": "vams-lookup-v1", "built_at": "t",
+                "corpora": ["cwe","kev"], "taxonomy": "cwe-taxonomy.json"
+            }"#,
+        )
+        .unwrap();
+        for c in ["cwe", "kev"] {
+            let dir = root.join("corpora").join(c);
+            test_support::write_empty_corpus(&dir).unwrap();
+        }
+        std::fs::create_dir_all(root.join("taxonomy")).unwrap();
+        std::fs::write(root.join("taxonomy/cwe-taxonomy.json"), "{}").unwrap();
+
+        let manifest = validate_layout(root).unwrap();
+        assert_eq!(manifest.corpora, vec!["cwe", "kev"]);
     }
 
     #[test]
