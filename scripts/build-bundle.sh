@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-BUNDLE_DIR="bundles/vams-lookup-v1"
+BUNDLE_DIR="${BUNDLE_DIR:-bundles/vams-lookup-v1}"
 CWE_XML="${CWE_XML:-data/cwec_v4.19.1.xml}"
 FASTRAG="${FASTRAG:-target/release/fastrag}"
 DATA_DIR="$(mktemp -d -t vams-lookup-build-XXXXXX)"
