@@ -36,6 +36,25 @@ async fn ready_503_when_no_bundle() {
     assert!(reasons.iter().any(|r| r == "bundle_not_loaded"));
 }
 
+/// A bundle that declares only `["cwe","kev"]` — no `cve` — must report
+/// `ready: true` once those two corpora are present and the embedder is
+/// reachable. With the hardcoded `["cve","cwe","kev"]` check this returns 503
+/// with `corpus_cve_missing`; after the manifest-driven fix it must be 200.
+#[tokio::test]
+async fn ready_green_with_cwe_kev_only_manifest() {
+    let (router, _tmp) = fastrag_cli::test_support::build_router_with_corpora_bundle(
+        &["cwe", "kev"],
+        None,
+        mock_embedder(),
+    )
+    .await;
+    let server = TestServer::new(router).unwrap();
+    let resp = server.get("/ready").await;
+    assert_eq!(resp.status_code(), 200);
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["ready"], true);
+}
+
 #[tokio::test]
 async fn ready_is_unauthenticated() {
     // /ready must not require the read token — external probes don't have it.

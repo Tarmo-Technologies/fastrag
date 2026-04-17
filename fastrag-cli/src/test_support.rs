@@ -87,6 +87,58 @@ fn write_minimal_bundle(root: &Path) {
     write_bundle_with_id(root, "test");
 }
 
+/// Build a minimally valid bundle that declares only the supplied corpus names.
+fn write_bundle_with_corpora(root: &Path, corpora: &[&str]) {
+    std::fs::create_dir_all(root).unwrap();
+    let corpora_json = corpora
+        .iter()
+        .map(|c| format!("\"{c}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    std::fs::write(
+        root.join("bundle.json"),
+        format!(
+            r#"{{
+            "schema_version": 1,
+            "bundle_id": "test-custom",
+            "built_at": "2026-04-16T00:00:00Z",
+            "corpora": [{corpora_json}],
+            "taxonomy": "cwe-taxonomy.json"
+        }}"#
+        ),
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("taxonomy")).unwrap();
+    std::fs::write(
+        root.join("taxonomy/cwe-taxonomy.json"),
+        r#"{"schema_version":2,"version":"4.15","view":"1000",
+             "closure":{"89":[89]},"parents":{"89":[]}}"#,
+    )
+    .unwrap();
+    for c in corpora {
+        let d = root.join("corpora").join(c);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("manifest.json"), "{}").unwrap();
+        std::fs::write(d.join("index.bin"), b"").unwrap();
+        std::fs::write(d.join("entries.bin"), b"").unwrap();
+    }
+}
+
+/// Construct a router fronting a bundle that declares only the given corpora.
+/// Used to verify that `/ready` is driven by `manifest.corpora`, not a
+/// hardcoded `["cve","cwe","kev"]` list.
+pub async fn build_router_with_corpora_bundle(
+    corpora: &[&str],
+    admin_token: Option<String>,
+    embedder: DynEmbedder,
+) -> (axum::Router, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().unwrap();
+    write_bundle_with_corpora(tmp.path(), corpora);
+    let state = crate::http::TestAppState::from_bundle(tmp.path(), admin_token, embedder).unwrap();
+    let router = crate::http::build_router_for_test(state);
+    (router, tmp)
+}
+
 /// Build a minimally valid bundle rooted at `root` with the given
 /// `bundle_id`. Used by the multi-bundle helpers below so reload tests can
 /// verify `bundle_id` / `previous_bundle_id` flip on swap.

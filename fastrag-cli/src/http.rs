@@ -1606,7 +1606,7 @@ async fn health() -> impl IntoResponse {
 /// the embedder + reranker (if configured) report ready. Reason codes let
 /// the liveness proxy surface the exact missing dependency.
 async fn ready_handler(State(state): State<AppState>) -> Response {
-    let mut reasons: Vec<&'static str> = Vec::new();
+    let mut reasons: Vec<String> = Vec::new();
 
     let Some(bundle) = state.bundle.as_ref() else {
         return (
@@ -1616,25 +1616,20 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
             .into_response();
     };
     let guard = bundle.load_full();
-    for name in ["cve", "cwe", "kev"] {
+    for name in &guard.manifest.corpora {
         if !guard.corpora.contains_key(name) {
-            match name {
-                "cve" => reasons.push("corpus_cve_missing"),
-                "cwe" => reasons.push("corpus_cwe_missing"),
-                "kev" => reasons.push("corpus_kev_missing"),
-                _ => {}
-            }
+            reasons.push(format!("corpus_{name}_missing"));
         }
     }
 
     if !state.embedder.is_ready() {
-        reasons.push("embedder_unreachable");
+        reasons.push("embedder_unreachable".into());
     }
     #[cfg(feature = "rerank")]
     if let Some(r) = state.reranker.as_ref()
         && !r.is_ready()
     {
-        reasons.push("reranker_unreachable");
+        reasons.push("reranker_unreachable".into());
     }
 
     if reasons.is_empty() {
