@@ -1,40 +1,23 @@
 #![cfg(feature = "retrieval")]
 
+mod support;
+
 use assert_cmd::Command;
-use serde_json::json;
 use tempfile::tempdir;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
-
-fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-}
-
-async fn mount_openai(server: &MockServer, dim: usize) {
-    Mock::given(method("POST"))
-        .and(path("/embeddings"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "data": [ { "embedding": vec![0.1_f32; dim] } ]
-        })))
-        .mount(server)
-        .await;
-}
 
 #[test]
 fn index_and_query_with_openai_backend() {
-    let rt = rt();
-    let (uri, _g) = rt.block_on(async {
-        let s = MockServer::start().await;
-        mount_openai(&s, 1536).await;
-        (s.uri(), s)
-    });
+    let (uri, _guard) = support::start_openai_embedding_server();
 
     let docs = tempdir().unwrap();
     std::fs::write(docs.path().join("a.txt"), "hello world").unwrap();
     let corpus = tempdir().unwrap();
+    let cfg = tempdir().unwrap();
+    let config_path = support::write_openai_config(
+        cfg.path(),
+        "openai-small",
+        &[("openai-small", "text-embedding-3-small")],
+    );
 
     Command::cargo_bin("fastrag")
         .unwrap()
@@ -44,8 +27,8 @@ fn index_and_query_with_openai_backend() {
             docs.path().to_str().unwrap(),
             "--corpus",
             corpus.path().to_str().unwrap(),
-            "--embedder",
-            "openai",
+            "--config",
+            config_path.to_str().unwrap(),
             "--openai-base-url",
             &uri,
         ])
@@ -60,6 +43,8 @@ fn index_and_query_with_openai_backend() {
             "hello",
             "--corpus",
             corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--openai-base-url",
             &uri,
         ])
@@ -78,17 +63,21 @@ fn index_and_query_with_openai_backend() {
 }
 
 #[test]
-fn query_with_mismatched_embedder_flag_fails() {
-    let rt = rt();
-    let (uri, _g) = rt.block_on(async {
-        let s = MockServer::start().await;
-        mount_openai(&s, 1536).await;
-        (s.uri(), s)
-    });
+fn query_with_mismatched_embedder_profile_fails() {
+    let (uri, _guard) = support::start_openai_embedding_server();
 
     let docs = tempdir().unwrap();
     std::fs::write(docs.path().join("a.txt"), "hello").unwrap();
     let corpus = tempdir().unwrap();
+    let cfg = tempdir().unwrap();
+    let config_path = support::write_openai_config(
+        cfg.path(),
+        "openai-small",
+        &[
+            ("openai-small", "text-embedding-3-small"),
+            ("openai-large", "text-embedding-3-large"),
+        ],
+    );
 
     Command::cargo_bin("fastrag")
         .unwrap()
@@ -98,8 +87,8 @@ fn query_with_mismatched_embedder_flag_fails() {
             docs.path().to_str().unwrap(),
             "--corpus",
             corpus.path().to_str().unwrap(),
-            "--embedder",
-            "openai",
+            "--config",
+            config_path.to_str().unwrap(),
             "--openai-base-url",
             &uri,
         ])
@@ -108,13 +97,18 @@ fn query_with_mismatched_embedder_flag_fails() {
 
     let out = Command::cargo_bin("fastrag")
         .unwrap()
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "hello",
             "--corpus",
             corpus.path().to_str().unwrap(),
-            "--embedder",
-            "bge",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--embedder-profile",
+            "openai-large",
+            "--openai-base-url",
+            &uri,
         ])
         .output()
         .unwrap();

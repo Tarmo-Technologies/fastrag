@@ -1,5 +1,7 @@
 #![cfg(all(feature = "eval", feature = "contextual", feature = "rerank"))]
 
+mod support;
+
 use std::path::PathBuf;
 
 use assert_cmd::Command;
@@ -21,12 +23,19 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
         eprintln!("FASTRAG_RERANK_TEST not set — skipping");
         return;
     }
+    let Some(model_path) = support::llama_cpp_embed_model_path() else {
+        eprintln!(
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+        );
+        return;
+    };
 
     let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval_mini");
     let corpus_src = fixture_dir.join("corpus");
     let questions = fixture_dir.join("questions.json");
 
     let tmp = tempdir().expect("tempdir");
+    let config_path = support::write_llama_cpp_config(tmp.path(), "qwen3", &model_path);
     let ctx_corpus = tmp.path().join("ctx_corpus");
     let raw_corpus = tmp.path().join("raw_corpus");
     let report_path = tmp.path().join("matrix_report.json");
@@ -39,6 +48,8 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
             corpus_src.to_str().unwrap(),
             "--corpus",
             ctx_corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--contextualize",
         ])
         .assert()
@@ -52,6 +63,8 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
             corpus_src.to_str().unwrap(),
             "--corpus",
             raw_corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -59,6 +72,7 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
     // Run the matrix eval.
     Command::cargo_bin("fastrag")
         .unwrap()
+        .current_dir(tmp.path())
         .args([
             "eval",
             "--config-matrix",

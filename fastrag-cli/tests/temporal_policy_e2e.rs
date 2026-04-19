@@ -2,6 +2,8 @@
 //! `--time-decay-*` flags.
 #![cfg(all(feature = "retrieval", feature = "store"))]
 
+mod support;
+
 use std::fs;
 use std::process::Command;
 
@@ -20,6 +22,12 @@ fn setup_corpus(tmp: &tempfile::TempDir) -> std::path::PathBuf {
 
     let corpus = tmp.path().join("corpus");
     let jsonl = tmp.path().join("docs.jsonl");
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     fs::write(
         &jsonl,
         format!(
@@ -31,11 +39,16 @@ fn setup_corpus(tmp: &tempfile::TempDir) -> std::path::PathBuf {
     .unwrap();
 
     let status = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "index",
             jsonl.to_str().unwrap(),
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--format",
             "jsonl",
             "--text-fields",
@@ -67,14 +80,25 @@ fn top_hit_id(json_text: &str) -> Option<String> {
 #[test]
 fn query_with_temporal_policy_favor_recent_medium() {
     let tmp = tempfile::tempdir().unwrap();
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     let corpus = setup_corpus(&tmp);
 
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "openssl heap overflow advisory",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--temporal-policy",
             "favor-recent-medium",
             "--time-decay-field",
@@ -106,14 +130,25 @@ fn query_with_temporal_policy_favor_recent_medium() {
 #[test]
 fn deprecated_halflife_flag_emits_stderr_warning() {
     let tmp = tempfile::tempdir().unwrap();
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     let corpus = setup_corpus(&tmp);
 
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "openssl heap overflow",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--time-decay-halflife",
             "90d",
             "--time-decay-field",
@@ -147,6 +182,12 @@ fn deprecated_halflife_flag_emits_stderr_warning() {
 #[test]
 fn temporal_policy_auto_does_not_error() {
     let tmp = tempfile::tempdir().unwrap();
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
 
     // Build a corpus with a doc from 2014 (Heartbleed era).
     let corpus = tmp.path().join("corpus");
@@ -160,11 +201,16 @@ fn temporal_policy_auto_does_not_error() {
     .unwrap();
 
     let status = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "index",
             jsonl.to_str().unwrap(),
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--format",
             "jsonl",
             "--text-fields",
@@ -181,11 +227,16 @@ fn temporal_policy_auto_does_not_error() {
     assert!(status.success(), "ingest failed");
 
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "describe CVE-2014-0160",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--temporal-policy",
             "auto",
             "--time-decay-field",

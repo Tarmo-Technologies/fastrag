@@ -6,6 +6,8 @@
 
 #![cfg(feature = "retrieval")]
 
+mod support;
+
 use assert_cmd::Command;
 use tempfile::tempdir;
 
@@ -18,6 +20,12 @@ fn qwen3_index_query_round_trip() {
         eprintln!("skipping: set FASTRAG_LLAMA_TEST=1 to run");
         return;
     }
+    let Some(model_path) = support::llama_cpp_embed_model_path() else {
+        eprintln!(
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+        );
+        return;
+    };
 
     let input = tempdir().unwrap();
     std::fs::write(
@@ -32,6 +40,8 @@ fn qwen3_index_query_round_trip() {
     .unwrap();
 
     let corpus = tempdir().unwrap();
+    let cfg = tempdir().unwrap();
+    let config_path = support::write_llama_cpp_config(cfg.path(), "qwen3", &model_path);
 
     // --- Index ---
     Command::cargo_bin("fastrag")
@@ -41,8 +51,8 @@ fn qwen3_index_query_round_trip() {
             input.path().to_str().unwrap(),
             "--corpus",
             corpus.path().to_str().unwrap(),
-            "--embedder",
-            "qwen3-q8",
+            "--config",
+            config_path.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -51,10 +61,10 @@ fn qwen3_index_query_round_trip() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&std::fs::read(corpus.path().join("manifest.json")).unwrap())
             .unwrap();
-    assert_eq!(manifest["version"].as_u64().unwrap(), 4);
+    assert_eq!(manifest["version"].as_u64().unwrap(), 5);
     assert_eq!(
         manifest["identity"]["model_id"].as_str().unwrap(),
-        "Qwen/Qwen3-Embedding-0.6B-GGUF@Q8_0"
+        format!("llama-cpp:{}", model_path.display())
     );
     assert_eq!(manifest["identity"]["dim"].as_u64().unwrap(), 1024);
     assert!(
@@ -70,6 +80,8 @@ fn qwen3_index_query_round_trip() {
             "systems programming memory safety",
             "--corpus",
             corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--top-k",
             "2",
             "--format",
@@ -95,6 +107,8 @@ fn qwen3_index_query_round_trip() {
             "data science machine learning",
             "--corpus",
             corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--top-k",
             "2",
             "--format",

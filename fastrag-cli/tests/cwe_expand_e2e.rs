@@ -2,6 +2,8 @@
 //! manifest, `fastrag query --cwe-expand` returns expanded hits.
 #![cfg(all(feature = "retrieval", feature = "store"))]
 
+mod support;
+
 use std::fs;
 use std::process::Command;
 
@@ -14,6 +16,12 @@ fn cli_index_sets_cwe_field_and_query_expands() {
     let tmp = tempfile::tempdir().unwrap();
     let corpus = tmp.path().join("corpus");
     let jsonl = tmp.path().join("f.jsonl");
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     fs::write(
         &jsonl,
         r#"{"id":"A","title":"sqli in login","cwe_id":89}
@@ -24,11 +32,16 @@ fn cli_index_sets_cwe_field_and_query_expands() {
     .unwrap();
 
     let status = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "index",
             jsonl.to_str().unwrap(),
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--format",
             "jsonl",
             "--text-fields",
@@ -63,11 +76,16 @@ fn cli_index_sets_cwe_field_and_query_expands() {
     // Query with --cwe-expand and --filter cwe_id=89 — no-rerank avoids
     // needing an ONNX model on the test runner.
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "sqli",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--top-k",
             "10",
             "--filter",
@@ -95,11 +113,16 @@ fn cli_index_sets_cwe_field_and_query_expands() {
 
     // Flip with --no-cwe-expand: only A should match.
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "sqli",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--top-k",
             "10",
             "--filter",

@@ -11,6 +11,8 @@
 
 #![cfg(all(feature = "contextual", feature = "contextual-llama"))]
 
+mod support;
+
 use std::path::PathBuf;
 
 use assert_cmd::Command;
@@ -27,8 +29,16 @@ fn retry_failed_repairs_all_transient_failures() {
         eprintln!("skipping: set FASTRAG_LLAMA_TEST=1 to run");
         return;
     }
+    let Some(model_path) = support::llama_cpp_embed_model_path() else {
+        eprintln!(
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+        );
+        return;
+    };
 
     let corpus = tempdir().unwrap();
+    let cfg = tempdir().unwrap();
+    let config_path = support::write_llama_cpp_config(cfg.path(), "qwen3", &model_path);
 
     // 1. Ingest with two injected failures.
     Command::cargo_bin("fastrag")
@@ -38,8 +48,8 @@ fn retry_failed_repairs_all_transient_failures() {
             fixture_dir().to_str().unwrap(),
             "--corpus",
             corpus.path().to_str().unwrap(),
-            "--embedder",
-            "qwen3-q8",
+            "--config",
+            config_path.to_str().unwrap(),
             "--contextualize",
         ])
         .env("FASTRAG_TEST_INJECT_FAILURES", "2")
@@ -49,7 +59,13 @@ fn retry_failed_repairs_all_transient_failures() {
     // 2. Confirm 3 ok / 2 failed via corpus-info.
     let out = Command::cargo_bin("fastrag")
         .unwrap()
-        .args(["corpus-info", "--corpus", corpus.path().to_str().unwrap()])
+        .args([
+            "corpus-info",
+            "--corpus",
+            corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -71,8 +87,8 @@ fn retry_failed_repairs_all_transient_failures() {
             fixture_dir().to_str().unwrap(),
             "--corpus",
             corpus.path().to_str().unwrap(),
-            "--embedder",
-            "qwen3-q8",
+            "--config",
+            config_path.to_str().unwrap(),
             "--contextualize",
             "--retry-failed",
         ])
@@ -83,7 +99,13 @@ fn retry_failed_repairs_all_transient_failures() {
     // 4. All five rows should now be ok.
     let out = Command::cargo_bin("fastrag")
         .unwrap()
-        .args(["corpus-info", "--corpus", corpus.path().to_str().unwrap()])
+        .args([
+            "corpus-info",
+            "--corpus",
+            corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -105,6 +127,8 @@ fn retry_failed_repairs_all_transient_failures() {
             "Is there an RCE in libfoo?",
             "--corpus",
             corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--top-k",
             "1",
             "--dense-only",

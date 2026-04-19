@@ -2,6 +2,8 @@
 //! without --time-decay-field) and the happy path (fresh doc promoted to top).
 #![cfg(all(feature = "retrieval", feature = "store"))]
 
+mod support;
+
 use std::collections::HashSet;
 use std::fs;
 use std::process::Command;
@@ -20,6 +22,12 @@ fn decay_flags_without_field_error() {
     let tmp = tempfile::tempdir().unwrap();
     let corpus = tmp.path().join("corpus");
     let jsonl = tmp.path().join("seed.jsonl");
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     fs::write(
         &jsonl,
         r#"{"id":"X","text":"seed"}
@@ -27,11 +35,16 @@ fn decay_flags_without_field_error() {
     )
     .unwrap();
     let status = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "index",
             jsonl.to_str().unwrap(),
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--format",
             "jsonl",
             "--text-fields",
@@ -44,11 +57,16 @@ fn decay_flags_without_field_error() {
     assert!(status.success(), "seed ingest failed");
 
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "x",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--time-decay-halflife",
             "7d",
         ])
@@ -72,6 +90,12 @@ fn decay_promotes_fresh_over_stale_via_cli() {
     let tmp = tempfile::tempdir().unwrap();
     let corpus = tmp.path().join("corpus");
     let jsonl = tmp.path().join("f.jsonl");
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     fs::write(
         &jsonl,
         format!(
@@ -84,11 +108,16 @@ fn decay_promotes_fresh_over_stale_via_cli() {
 
     // Ingest with typed date metadata.
     let status = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "index",
             jsonl.to_str().unwrap(),
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--format",
             "jsonl",
             "--text-fields",
@@ -106,11 +135,16 @@ fn decay_promotes_fresh_over_stale_via_cli() {
 
     // Query with decay on published_date. --time-decay-field implies --hybrid.
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "openssl heap overflow",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--top-k",
             "2",
             "--time-decay-field",

@@ -14,6 +14,8 @@
 
 #![cfg(all(feature = "contextual", feature = "contextual-llama"))]
 
+mod support;
+
 use std::path::PathBuf;
 
 use assert_cmd::Command;
@@ -30,9 +32,17 @@ fn contextualization_enables_pronoun_resolution() {
         eprintln!("skipping: set FASTRAG_LLAMA_TEST=1 to run");
         return;
     }
+    let Some(model_path) = support::llama_cpp_embed_model_path() else {
+        eprintln!(
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+        );
+        return;
+    };
 
     let raw_corpus = tempdir().unwrap();
     let ctx_corpus = tempdir().unwrap();
+    let cfg = tempdir().unwrap();
+    let config_path = support::write_llama_cpp_config(cfg.path(), "qwen3", &model_path);
 
     // 1. Index without contextualization.
     Command::cargo_bin("fastrag")
@@ -42,8 +52,8 @@ fn contextualization_enables_pronoun_resolution() {
             fixture_dir().to_str().unwrap(),
             "--corpus",
             raw_corpus.path().to_str().unwrap(),
-            "--embedder",
-            "qwen3-q8",
+            "--config",
+            config_path.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -56,8 +66,8 @@ fn contextualization_enables_pronoun_resolution() {
             fixture_dir().to_str().unwrap(),
             "--corpus",
             ctx_corpus.path().to_str().unwrap(),
-            "--embedder",
-            "qwen3-q8",
+            "--config",
+            config_path.to_str().unwrap(),
             "--contextualize",
         ])
         .assert()
@@ -70,6 +80,8 @@ fn contextualization_enables_pronoun_resolution() {
             "corpus-info",
             "--corpus",
             ctx_corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -101,6 +113,8 @@ fn contextualization_enables_pronoun_resolution() {
             query,
             "--corpus",
             raw_corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--top-k",
             "1",
             "--dense-only",
@@ -119,6 +133,8 @@ fn contextualization_enables_pronoun_resolution() {
             query,
             "--corpus",
             ctx_corpus.path().to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
             "--top-k",
             "1",
             "--dense-only",

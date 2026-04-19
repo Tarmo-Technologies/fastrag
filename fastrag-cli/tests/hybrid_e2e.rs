@@ -4,6 +4,8 @@
 //! retrievers wired up.
 #![cfg(all(feature = "retrieval", feature = "store"))]
 
+mod support;
+
 use std::fs;
 use std::process::Command;
 
@@ -16,6 +18,12 @@ fn cli_query_hybrid_returns_results() {
     let tmp = tempfile::tempdir().unwrap();
     let corpus = tmp.path().join("corpus");
     let jsonl = tmp.path().join("f.jsonl");
+    let config_path = support::write_openai_config(
+        tmp.path(),
+        "openai",
+        &[("openai", "text-embedding-3-small")],
+    );
+    let (openai_base_url, _guard) = support::start_openai_embedding_server();
     fs::write(
         &jsonl,
         r#"{"id":"A","text":"alpha beta gamma"}
@@ -27,11 +35,16 @@ fn cli_query_hybrid_returns_results() {
 
     // Index via jsonl format so the store has both BM25 index and dense HNSW.
     let status = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "index",
             jsonl.to_str().unwrap(),
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--format",
             "jsonl",
             "--text-fields",
@@ -45,11 +58,16 @@ fn cli_query_hybrid_returns_results() {
 
     // Query with --hybrid. Assert exit 0 + non-empty JSON array.
     let out = Command::new(bin())
+        .env("OPENAI_API_KEY", "test")
         .args([
             "query",
             "alpha",
             "--corpus",
             corpus.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--openai-base-url",
+            &openai_base_url,
             "--top-k",
             "3",
             "--hybrid",
