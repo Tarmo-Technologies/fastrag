@@ -25,7 +25,8 @@ CWE_XML="${CWE_XML:-data/cwec_${CWE_VERSION}.xml}"
 CWE_SHA_FILE="${CWE_SHA_FILE:-data/cwe-${CWE_VERSION}.sha256}"
 FASTRAG="${FASTRAG:-target/release/fastrag}"
 DATA_DIR="$(mktemp -d -t vams-lookup-build-XXXXXX)"
-trap 'rm -rf "$DATA_DIR"' EXIT
+FASTRAG_CONFIG="$(mktemp -t vams-lookup-fastrag-XXXXXX.toml)"
+trap 'rm -rf "$DATA_DIR" "$FASTRAG_CONFIG"' EXIT
 
 if [[ ! -f "$CWE_XML" ]]; then
   echo "CWE XML not found at $CWE_XML" >&2
@@ -48,6 +49,18 @@ fi
 
 mkdir -p "$BUNDLE_DIR/taxonomy"
 
+cat > "$FASTRAG_CONFIG" <<EOF
+[embedder]
+default_profile = "bundle-bge"
+
+[embedder.profiles.bundle-bge]
+backend = "bge"
+model = "fastrag/bge-small-en-v1.5"
+use_catalog_defaults = true
+EOF
+
+FASTRAG_INDEX_ARGS=(--config "$FASTRAG_CONFIG" --embedder-profile bundle-bge)
+
 # 1. Fetch KEV
 scripts/fetch-kev.sh "$DATA_DIR"
 
@@ -61,8 +74,8 @@ python3 scripts/build_taxonomy_corpus.py \
 # 3. Index
 rm -rf "$BUNDLE_DIR/corpora/cwe" "$BUNDLE_DIR/corpora/kev"
 "$FASTRAG" index "$DATA_DIR/cwe.jsonl" \
+    "${FASTRAG_INDEX_ARGS[@]}" \
     --corpus "$BUNDLE_DIR/corpora/cwe" \
-    --embedder bge \
     --format jsonl \
     --text-fields name,description,extended_description \
     --id-field cwe_id \
@@ -71,8 +84,8 @@ rm -rf "$BUNDLE_DIR/corpora/cwe" "$BUNDLE_DIR/corpora/kev"
     --cwe-field cwe_id
 
 "$FASTRAG" index "$DATA_DIR/kev.jsonl" \
+    "${FASTRAG_INDEX_ARGS[@]}" \
     --corpus "$BUNDLE_DIR/corpora/kev" \
-    --embedder bge \
     --format jsonl \
     --text-fields vulnerability_name,short_description,required_action \
     --id-field cve_id \
@@ -87,8 +100,8 @@ VAMS_FINDINGS_JSONL="${VAMS_FINDINGS_JSONL:-../vams/data/synthetic-findings/all.
 if [[ -f "$VAMS_FINDINGS_JSONL" ]]; then
   rm -rf "$BUNDLE_DIR/corpora/vams-findings"
   "$FASTRAG" index "$VAMS_FINDINGS_JSONL" \
+      "${FASTRAG_INDEX_ARGS[@]}" \
       --corpus "$BUNDLE_DIR/corpora/vams-findings" \
-      --embedder bge \
       --format jsonl \
       --preset tarmo-finding \
       --metadata-fields origin,language,ai_confidence,ai_reasoning,analyst_outcome,analyst_confidence,rejection_reason,rejection_reason_text,synthesis_source
