@@ -31,15 +31,6 @@ pub fn parse_filter_expr(s: &str) -> Result<fastrag::filter::FilterExpr, String>
 }
 
 #[cfg(feature = "retrieval")]
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
-pub enum EmbedderKindArg {
-    Bge,
-    Openai,
-    Ollama,
-    Qwen3Q8,
-}
-
-#[cfg(feature = "retrieval")]
 #[derive(Debug, Clone, clap::Args)]
 pub struct EmbedderProfileCliArgs {
     #[arg(long)]
@@ -256,31 +247,6 @@ pub enum Command {
         #[command(flatten)]
         embedder_profile: EmbedderProfileCliArgs,
 
-        /// Optional local model path
-        #[arg(skip)]
-        model_path: Option<PathBuf>,
-
-        /// Embedder backend to use. Defaults to bge for write paths; auto-detected
-        /// from the corpus manifest on read paths if omitted.
-        #[arg(skip)]
-        embedder: Option<EmbedderKindArg>,
-
-        /// OpenAI model name.
-        #[arg(skip = String::from("text-embedding-3-small"))]
-        openai_model: String,
-
-        /// OpenAI API base URL.
-        #[arg(skip = String::from("https://api.openai.com/v1"))]
-        openai_base_url: String,
-
-        /// Ollama model name.
-        #[arg(skip = String::from("nomic-embed-text"))]
-        ollama_model: String,
-
-        /// Ollama server URL.
-        #[arg(skip = String::from("http://localhost:11434"))]
-        ollama_url: String,
-
         /// Apply metadata key=value to every file in this run (repeatable).
         /// Per-file `.meta.json` sidecars override these on conflict.
         #[arg(long = "metadata", value_parser = parse_kv)]
@@ -406,31 +372,6 @@ pub enum Command {
         #[command(flatten)]
         embedder_profile: EmbedderProfileCliArgs,
 
-        /// Optional local model path
-        #[arg(skip)]
-        model_path: Option<PathBuf>,
-
-        /// Embedder backend to use. Defaults to bge for write paths; auto-detected
-        /// from the corpus manifest on read paths if omitted.
-        #[arg(skip)]
-        embedder: Option<EmbedderKindArg>,
-
-        /// OpenAI model name.
-        #[arg(skip = String::from("text-embedding-3-small"))]
-        openai_model: String,
-
-        /// OpenAI API base URL.
-        #[arg(skip = String::from("https://api.openai.com/v1"))]
-        openai_base_url: String,
-
-        /// Ollama model name.
-        #[arg(skip = String::from("nomic-embed-text"))]
-        ollama_model: String,
-
-        /// Ollama server URL.
-        #[arg(skip = String::from("http://localhost:11434"))]
-        ollama_url: String,
-
         /// Filter expression: supports legacy `k=v,k2=v2` comma format and
         /// rich syntax (e.g. `severity = HIGH AND cvss_score >= 7.0`).
         /// Applied as a post-filter over the HNSW fan-out.
@@ -521,30 +462,6 @@ pub enum Command {
 
         #[command(flatten)]
         embedder_profile: EmbedderProfileCliArgs,
-
-        /// Optional local model path
-        #[arg(skip)]
-        model_path: Option<PathBuf>,
-
-        /// Embedder backend to use. Auto-detected from corpus manifest if omitted.
-        #[arg(skip)]
-        embedder: Option<EmbedderKindArg>,
-
-        /// OpenAI model name.
-        #[arg(skip = String::from("text-embedding-3-small"))]
-        openai_model: String,
-
-        /// OpenAI API base URL.
-        #[arg(skip = String::from("https://api.openai.com/v1"))]
-        openai_base_url: String,
-
-        /// Ollama model name.
-        #[arg(skip = String::from("nomic-embed-text"))]
-        ollama_model: String,
-
-        /// Ollama server URL.
-        #[arg(skip = String::from("http://localhost:11434"))]
-        ollama_url: String,
     },
 
     /// Evaluate a retrieval setup on a BEIR-compatible dataset
@@ -641,31 +558,6 @@ pub enum Command {
 
         #[command(flatten)]
         embedder_profile: EmbedderProfileCliArgs,
-
-        /// Optional local model path
-        #[arg(skip)]
-        model_path: Option<PathBuf>,
-
-        /// Embedder backend to use. Defaults to bge for write paths; auto-detected
-        /// from the corpus manifest on read paths if omitted.
-        #[arg(skip)]
-        embedder: Option<EmbedderKindArg>,
-
-        /// OpenAI model name.
-        #[arg(skip = String::from("text-embedding-3-small"))]
-        openai_model: String,
-
-        /// OpenAI API base URL.
-        #[arg(skip = String::from("https://api.openai.com/v1"))]
-        openai_base_url: String,
-
-        /// Ollama model name.
-        #[arg(skip = String::from("nomic-embed-text"))]
-        ollama_model: String,
-
-        /// Ollama server URL.
-        #[arg(skip = String::from("http://localhost:11434"))]
-        ollama_url: String,
 
         /// Shared-secret auth token. Also read from `FASTRAG_TOKEN` env var; CLI flag wins.
         /// When set, /query and /metrics require `X-Fastrag-Token: <token>` or

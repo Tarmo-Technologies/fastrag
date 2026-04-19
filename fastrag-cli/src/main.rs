@@ -18,6 +18,18 @@ use fastrag_cli::embed_loader;
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::Semaphore;
 
+#[cfg(feature = "retrieval")]
+fn default_embedder_options() -> embed_loader::EmbedderOptions {
+    embed_loader::EmbedderOptions {
+        kind: None,
+        model_path: None,
+        openai_model: "text-embedding-3-small".to_string(),
+        openai_base_url: "https://api.openai.com/v1".to_string(),
+        ollama_model: "nomic-embed-text".to_string(),
+        ollama_url: "http://localhost:11434".to_string(),
+    }
+}
+
 fn init_tracing() {
     use tracing_subscriber::EnvFilter;
     use tracing_subscriber::fmt;
@@ -141,12 +153,6 @@ async fn main() {
             chunk_separators,
             similarity_threshold,
             percentile_threshold,
-            model_path,
-            embedder,
-            openai_model,
-            openai_base_url,
-            ollama_model,
-            ollama_url,
             metadata,
             #[cfg(feature = "contextual")]
             contextualize,
@@ -253,14 +259,7 @@ async fn main() {
                             similarity_threshold,
                             percentile_threshold,
                         );
-                        let opts = embed_loader::EmbedderOptions {
-                            kind: embedder,
-                            model_path,
-                            openai_model,
-                            openai_base_url,
-                            ollama_model,
-                            ollama_url,
-                        };
+                        let opts = default_embedder_options();
                         let embedder = embed_loader::load_for_write(&opts).unwrap_or_else(|e| {
                             eprintln!("Error loading embedder: {e}");
                             std::process::exit(1);
@@ -299,14 +298,7 @@ async fn main() {
                     similarity_threshold,
                     percentile_threshold,
                 );
-                let opts = embed_loader::EmbedderOptions {
-                    kind: embedder,
-                    model_path,
-                    openai_model,
-                    openai_base_url,
-                    ollama_model,
-                    ollama_url,
-                };
+                let opts = default_embedder_options();
                 let embedder = embed_loader::load_for_write(&opts).unwrap_or_else(|e| {
                     eprintln!("Error loading embedder: {e}");
                     std::process::exit(1);
@@ -497,12 +489,6 @@ async fn main() {
             corpus,
             top_k,
             format,
-            model_path,
-            embedder,
-            openai_model,
-            openai_base_url,
-            ollama_model,
-            ollama_url,
             filter,
             filter_json,
             hybrid,
@@ -525,14 +511,7 @@ async fn main() {
             ..
         } => {
             tokio::task::block_in_place(|| {
-                let opts = embed_loader::EmbedderOptions {
-                    kind: embedder,
-                    model_path,
-                    openai_model,
-                    openai_base_url,
-                    ollama_model,
-                    ollama_url,
-                };
+                let opts = default_embedder_options();
                 let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
                     eprintln!("Error loading embedder: {e}");
                     std::process::exit(1);
@@ -681,23 +660,10 @@ async fn main() {
         #[cfg(feature = "retrieval")]
         Command::CorpusInfo {
             corpus,
-            model_path,
-            embedder,
-            openai_model,
-            openai_base_url,
-            ollama_model,
-            ollama_url,
             ..
         } => {
             tokio::task::block_in_place(|| {
-                let opts = embed_loader::EmbedderOptions {
-                    kind: embedder,
-                    model_path,
-                    openai_model,
-                    openai_base_url,
-                    ollama_model,
-                    ollama_url,
-                };
+                let opts = default_embedder_options();
                 let emb = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
                     eprintln!("Error loading embedder: {e}");
                     std::process::exit(1);
@@ -772,12 +738,6 @@ async fn main() {
         Command::ServeHttp {
             corpus,
             port,
-            model_path,
-            embedder,
-            openai_model,
-            openai_base_url,
-            ollama_model,
-            ollama_url,
             token,
             dense_only,
             cwe_expand,
@@ -839,14 +799,7 @@ async fn main() {
                 .map(|s| fastrag::corpus::CorpusRegistry::parse_corpus_arg(s).1)
                 .unwrap(); // required = true guarantees at least one
 
-            let opts = embed_loader::EmbedderOptions {
-                kind: embedder,
-                model_path,
-                openai_model,
-                openai_base_url,
-                ollama_model,
-                ollama_url,
-            };
+            let opts = default_embedder_options();
             let embedder = embed_loader::load_for_read(&first_path, &opts).unwrap_or_else(|e| {
                 eprintln!("Error loading embedder: {e}");
                 std::process::exit(1);

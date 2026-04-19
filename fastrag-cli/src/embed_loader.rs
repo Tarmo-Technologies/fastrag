@@ -13,7 +13,14 @@ use fastrag_embed::{
 };
 use thiserror::Error;
 
-use crate::args::EmbedderKindArg;
+#[cfg(feature = "retrieval")]
+#[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
+pub enum EmbedderKindArg {
+    Bge,
+    Openai,
+    Ollama,
+    Qwen3Q8,
+}
 
 #[derive(Debug, Error)]
 pub enum EmbedLoaderError {
