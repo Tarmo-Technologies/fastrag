@@ -9,12 +9,35 @@ GOLD_CORPUS="tests/gold/corpus"
 GOLD_SET="tests/gold/questions.json"
 OUT_DIR="target/chunking-sweep"
 RESULTS="$OUT_DIR/results.tsv"
+MODEL_DIR="${FASTRAG_MODEL_DIR:-$HOME/.cache/fastrag/models}"
+MODEL_PATH="${FASTRAG_CHUNKING_MODEL:-$MODEL_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf}"
+CONFIG_ROOT="$(mktemp -d -t fastrag-chunking-config-XXXXXX)"
+CONFIG_DIR="$CONFIG_ROOT/fastrag"
+CONFIG_PATH="$CONFIG_DIR/fastrag.toml"
 
 STRATEGIES=(basic by-title recursive)
 SIZES=(500 800 1000 1500)
 OVERLAPS=(0 100 200)
 
 mkdir -p "$OUT_DIR"
+trap 'rm -rf "$CONFIG_ROOT"' EXIT
+
+if [[ ! -f "$MODEL_PATH" ]]; then
+  echo "chunking sweep model not found at $MODEL_PATH" >&2
+  echo "Set FASTRAG_CHUNKING_MODEL=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf or FASTRAG_MODEL_DIR accordingly." >&2
+  exit 1
+fi
+
+mkdir -p "$CONFIG_DIR"
+cat > "$CONFIG_PATH" <<EOF
+[embedder]
+default_profile = "chunking-sweep"
+
+[embedder.profiles.chunking-sweep]
+backend = "llama-cpp"
+model = "$MODEL_PATH"
+EOF
+export XDG_CONFIG_HOME="$CONFIG_ROOT"
 
 printf "strategy\tsize\toverlap\tchunks\tindex_bytes\thit_at_1\thit_at_5\thit_at_10\tmrr_at_10\n" > "$RESULTS"
 
@@ -36,7 +59,8 @@ for strategy in "${STRATEGIES[@]}"; do
         --features retrieval,rerank,contextual,contextual-llama -- \
         index "$GOLD_CORPUS" \
         --corpus "$CTX_DIR" \
-        --embedder qwen3-q8 \
+        --config "$CONFIG_PATH" \
+        --embedder-profile chunking-sweep \
         --contextualize \
         --chunk-strategy "$strategy" \
         --chunk-size "$size" \
@@ -48,7 +72,8 @@ for strategy in "${STRATEGIES[@]}"; do
         --features retrieval,rerank,contextual,contextual-llama -- \
         index "$GOLD_CORPUS" \
         --corpus "$RAW_DIR" \
-        --embedder qwen3-q8 \
+        --config "$CONFIG_PATH" \
+        --embedder-profile chunking-sweep \
         --chunk-strategy "$strategy" \
         --chunk-size "$size" \
         --chunk-overlap "$overlap" \

@@ -11,11 +11,23 @@ Checked-in baselines for the weekly retrieval eval gate.
 The baseline is captured on a workstation with a real embedder + reranker + llama-server available.
 
 ```bash
+mkdir -p /tmp/gold-baseline/config/fastrag
+cat > /tmp/gold-baseline/config/fastrag/fastrag.toml <<'TOML'
+[embedder]
+default_profile = "eval-llama"
+
+[embedder.profiles.eval-llama]
+backend = "llama-cpp"
+model = "/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+TOML
+export XDG_CONFIG_HOME=/tmp/gold-baseline/config
+
 # Build both corpora locally.
 cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
   index tests/gold/corpus \
   --corpus /tmp/gold-baseline/ctx \
-  --embedder qwen3-q8 \
+  --config /tmp/gold-baseline/config/fastrag/fastrag.toml \
+  --embedder-profile eval-llama \
   --metadata-fields published_date,last_modified \
   --metadata-types published_date=date,last_modified=date \
   --contextualize
@@ -23,11 +35,14 @@ cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-lla
 cargo run --release --features retrieval,rerank,hybrid,contextual,contextual-llama -- \
   index tests/gold/corpus \
   --corpus /tmp/gold-baseline/raw \
-  --embedder qwen3-q8 \
+  --config /tmp/gold-baseline/config/fastrag/fastrag.toml \
+  --embedder-profile eval-llama \
   --metadata-fields published_date,last_modified \
   --metadata-types published_date=date,last_modified=date
 
-# Run the matrix and write the baseline.
+# Run the matrix and write the baseline. `eval --config-matrix` resolves the
+# default profile from the current `fastrag.toml` discovery path, so keep
+# `XDG_CONFIG_HOME` exported for this step.
 cargo run --release --features eval,retrieval,rerank,hybrid,contextual,contextual-llama -- \
   eval \
   --gold-set tests/gold/questions.json \

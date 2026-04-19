@@ -61,7 +61,7 @@ default_profile = "airgap"
 
 [embedder.profiles.airgap]
 backend = "llama-cpp"
-model_path = "${FASTRAG_MODEL_DIR}/Qwen3-Embedding-0.6B-Q8_0.gguf"
+model = "${FASTRAG_MODEL_DIR}/Qwen3-Embedding-0.6B-Q8_0.gguf"
 EOF
 
 exec fastrag serve-http \
