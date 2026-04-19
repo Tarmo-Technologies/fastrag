@@ -31,12 +31,28 @@ pub fn parse_filter_expr(s: &str) -> Result<fastrag::filter::FilterExpr, String>
 }
 
 #[cfg(feature = "retrieval")]
-#[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum EmbedderKindArg {
     Bge,
     Openai,
     Ollama,
     Qwen3Q8,
+}
+
+#[cfg(feature = "retrieval")]
+#[derive(Debug, Clone, clap::Args)]
+pub struct EmbedderProfileCliArgs {
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    #[arg(long)]
+    pub embedder_profile: Option<String>,
+
+    #[arg(long)]
+    pub ollama_url: Option<String>,
+
+    #[arg(long)]
+    pub openai_base_url: Option<String>,
 }
 
 #[cfg(feature = "rerank")]
@@ -128,7 +144,7 @@ pub fn build_hybrid_opts(
     })
 }
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(name = "fastrag", about = "Fast document parser for AI/RAG pipelines")]
 #[command(version)]
 pub struct Cli {
@@ -136,7 +152,7 @@ pub struct Cli {
     pub command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// Parse one or more files
@@ -237,29 +253,32 @@ pub enum Command {
         #[arg(long)]
         percentile_threshold: Option<f32>,
 
+        #[command(flatten)]
+        embedder_profile: EmbedderProfileCliArgs,
+
         /// Optional local model path
-        #[arg(long)]
+        #[arg(skip)]
         model_path: Option<PathBuf>,
 
         /// Embedder backend to use. Defaults to bge for write paths; auto-detected
         /// from the corpus manifest on read paths if omitted.
-        #[arg(long, value_enum)]
+        #[arg(skip)]
         embedder: Option<EmbedderKindArg>,
 
         /// OpenAI model name.
-        #[arg(long, default_value = "text-embedding-3-small")]
+        #[arg(skip = String::from("text-embedding-3-small"))]
         openai_model: String,
 
         /// OpenAI API base URL.
-        #[arg(long, default_value = "https://api.openai.com/v1")]
+        #[arg(skip = String::from("https://api.openai.com/v1"))]
         openai_base_url: String,
 
         /// Ollama model name.
-        #[arg(long, default_value = "nomic-embed-text")]
+        #[arg(skip = String::from("nomic-embed-text"))]
         ollama_model: String,
 
         /// Ollama server URL.
-        #[arg(long, default_value = "http://localhost:11434")]
+        #[arg(skip = String::from("http://localhost:11434"))]
         ollama_url: String,
 
         /// Apply metadata key=value to every file in this run (repeatable).
@@ -384,29 +403,32 @@ pub enum Command {
         #[arg(short, long, default_value = "json")]
         format: OutputFormatArg,
 
+        #[command(flatten)]
+        embedder_profile: EmbedderProfileCliArgs,
+
         /// Optional local model path
-        #[arg(long)]
+        #[arg(skip)]
         model_path: Option<PathBuf>,
 
         /// Embedder backend to use. Defaults to bge for write paths; auto-detected
         /// from the corpus manifest on read paths if omitted.
-        #[arg(long, value_enum)]
+        #[arg(skip)]
         embedder: Option<EmbedderKindArg>,
 
         /// OpenAI model name.
-        #[arg(long, default_value = "text-embedding-3-small")]
+        #[arg(skip = String::from("text-embedding-3-small"))]
         openai_model: String,
 
         /// OpenAI API base URL.
-        #[arg(long, default_value = "https://api.openai.com/v1")]
+        #[arg(skip = String::from("https://api.openai.com/v1"))]
         openai_base_url: String,
 
         /// Ollama model name.
-        #[arg(long, default_value = "nomic-embed-text")]
+        #[arg(skip = String::from("nomic-embed-text"))]
         ollama_model: String,
 
         /// Ollama server URL.
-        #[arg(long, default_value = "http://localhost:11434")]
+        #[arg(skip = String::from("http://localhost:11434"))]
         ollama_url: String,
 
         /// Filter expression: supports legacy `k=v,k2=v2` comma format and
@@ -497,28 +519,31 @@ pub enum Command {
         #[arg(long)]
         corpus: PathBuf,
 
+        #[command(flatten)]
+        embedder_profile: EmbedderProfileCliArgs,
+
         /// Optional local model path
-        #[arg(long)]
+        #[arg(skip)]
         model_path: Option<PathBuf>,
 
         /// Embedder backend to use. Auto-detected from corpus manifest if omitted.
-        #[arg(long, value_enum)]
+        #[arg(skip)]
         embedder: Option<EmbedderKindArg>,
 
         /// OpenAI model name.
-        #[arg(long, default_value = "text-embedding-3-small")]
+        #[arg(skip = String::from("text-embedding-3-small"))]
         openai_model: String,
 
         /// OpenAI API base URL.
-        #[arg(long, default_value = "https://api.openai.com/v1")]
+        #[arg(skip = String::from("https://api.openai.com/v1"))]
         openai_base_url: String,
 
         /// Ollama model name.
-        #[arg(long, default_value = "nomic-embed-text")]
+        #[arg(skip = String::from("nomic-embed-text"))]
         ollama_model: String,
 
         /// Ollama server URL.
-        #[arg(long, default_value = "http://localhost:11434")]
+        #[arg(skip = String::from("http://localhost:11434"))]
         ollama_url: String,
     },
 
@@ -614,29 +639,32 @@ pub enum Command {
         #[arg(long, default_value_t = 8081)]
         port: u16,
 
+        #[command(flatten)]
+        embedder_profile: EmbedderProfileCliArgs,
+
         /// Optional local model path
-        #[arg(long)]
+        #[arg(skip)]
         model_path: Option<PathBuf>,
 
         /// Embedder backend to use. Defaults to bge for write paths; auto-detected
         /// from the corpus manifest on read paths if omitted.
-        #[arg(long, value_enum)]
+        #[arg(skip)]
         embedder: Option<EmbedderKindArg>,
 
         /// OpenAI model name.
-        #[arg(long, default_value = "text-embedding-3-small")]
+        #[arg(skip = String::from("text-embedding-3-small"))]
         openai_model: String,
 
         /// OpenAI API base URL.
-        #[arg(long, default_value = "https://api.openai.com/v1")]
+        #[arg(skip = String::from("https://api.openai.com/v1"))]
         openai_base_url: String,
 
         /// Ollama model name.
-        #[arg(long, default_value = "nomic-embed-text")]
+        #[arg(skip = String::from("nomic-embed-text"))]
         ollama_model: String,
 
         /// Ollama server URL.
-        #[arg(long, default_value = "http://localhost:11434")]
+        #[arg(skip = String::from("http://localhost:11434"))]
         ollama_url: String,
 
         /// Shared-secret auth token. Also read from `FASTRAG_TOKEN` env var; CLI flag wins.
@@ -730,7 +758,7 @@ pub enum Command {
     },
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum OutputFormatArg {
     Markdown,
     Json,
@@ -739,7 +767,7 @@ pub enum OutputFormatArg {
     Html,
 }
 
-#[derive(Clone, ValueEnum, PartialEq)]
+#[derive(Debug, Clone, ValueEnum, PartialEq)]
 pub enum ChunkStrategyArg {
     None,
     Basic,
@@ -749,14 +777,14 @@ pub enum ChunkStrategyArg {
 }
 
 #[cfg(feature = "eval")]
-#[derive(Clone, ValueEnum)]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum EvalEmbedderArg {
     Mock,
     BgeSmall,
 }
 
 #[cfg(feature = "eval")]
-#[derive(Clone, ValueEnum)]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum EvalChunkingArg {
     Basic,
     ByTitle,
@@ -764,7 +792,7 @@ pub enum EvalChunkingArg {
 }
 
 #[cfg(feature = "eval")]
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum EvalDatasetNameArg {
     Nfcorpus,
     Scifact,

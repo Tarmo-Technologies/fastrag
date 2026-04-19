@@ -180,6 +180,7 @@ async fn main() {
             cwe_field,
             #[cfg(feature = "store")]
             preset,
+            ..
         } => {
             #[cfg(feature = "contextual")]
             {
@@ -521,6 +522,7 @@ async fn main() {
             no_rerank,
             #[cfg(feature = "rerank")]
             rerank_over_fetch,
+            ..
         } => {
             tokio::task::block_in_place(|| {
                 let opts = embed_loader::EmbedderOptions {
@@ -685,6 +687,7 @@ async fn main() {
             openai_base_url,
             ollama_model,
             ollama_url,
+            ..
         } => {
             tokio::task::block_in_place(|| {
                 let opts = embed_loader::EmbedderOptions {
@@ -792,6 +795,7 @@ async fn main() {
             bundles_dir,
             admin_token,
             bundle_retention,
+            ..
         } => {
             let token = token.or_else(|| std::env::var("FASTRAG_TOKEN").ok());
             let admin_token = admin_token.or_else(|| std::env::var("FASTRAG_ADMIN_TOKEN").ok());
