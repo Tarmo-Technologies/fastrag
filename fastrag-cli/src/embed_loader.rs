@@ -211,8 +211,15 @@ fn profile_from_manifest_identity(
         model,
         base_url: None,
         prefix: PrefixConfig::default(),
-        dim_override: Some(identity.dim),
+        dim_override: manifest_dim_override(backend, identity.dim),
     })
+}
+
+fn manifest_dim_override(backend: EmbedBackend, dim: usize) -> Option<usize> {
+    match backend {
+        EmbedBackend::Bge | EmbedBackend::Openai => None,
+        EmbedBackend::Ollama | EmbedBackend::LlamaCpp => Some(dim),
+    }
 }
 
 fn prefix_scheme_for_config(prefix: &PrefixConfig) -> PrefixScheme {

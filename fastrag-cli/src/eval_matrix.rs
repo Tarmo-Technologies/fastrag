@@ -126,20 +126,20 @@ mod tests {
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    fn write_prefix_aware_manifest(corpus_dir: &Path) {
+    fn write_manifest(corpus_dir: &Path, model_id: &str, prefix_scheme_hash: u64, dim: usize) {
         fs::create_dir_all(corpus_dir).expect("create corpus dir");
         fs::write(
             corpus_dir.join("manifest.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "version": 5,
                 "identity": {
-                    "model_id": "ollama:mixedbread-ai/mxbai-embed-large-v1",
-                    "dim": 1024,
-                    "prefix_scheme_hash": PrefixScheme::new("query: ", "passage: ").hash(),
+                    "model_id": model_id,
+                    "dim": dim,
+                    "prefix_scheme_hash": prefix_scheme_hash,
                 },
                 "canary": {
                     "text_version": 1,
-                    "vector": vec![0.0_f32; 1024],
+                    "vector": vec![0.0_f32; dim],
                 },
                 "created_at_unix_seconds": 1,
                 "chunk_count": 0,
@@ -154,6 +154,15 @@ mod tests {
             .expect("serialize manifest"),
         )
         .expect("write manifest");
+    }
+
+    fn write_prefix_aware_manifest(corpus_dir: &Path) {
+        write_manifest(
+            corpus_dir,
+            "ollama:mixedbread-ai/mxbai-embed-large-v1",
+            PrefixScheme::new("query: ", "passage: ").hash(),
+            1024,
+        );
     }
 
     #[test]
@@ -241,5 +250,39 @@ model = "text-embedding-3-small"
         let msg = err.to_string();
         assert!(msg.contains("unknown variant"), "unexpected error: {msg}");
         assert!(msg.contains("not-a-variant"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn config_matrix_manifest_fallback_supports_prefixless_openai_without_config() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let corpus = temp.path().join("ctx");
+        write_manifest(
+            &corpus,
+            "openai:text-embedding-3-small",
+            PrefixScheme::NONE.hash(),
+            1536,
+        );
+
+        let prev_dir = std::env::current_dir().expect("cwd");
+        let prev_openai = std::env::var("OPENAI_API_KEY").ok();
+        std::env::set_current_dir(temp.path()).expect("set cwd");
+        unsafe {
+            std::env::set_var("OPENAI_API_KEY", "test-key");
+        }
+
+        let embedder = load_embedder_for_config_matrix(&corpus)
+            .expect("prefixless openai manifest fallback should succeed");
+
+        std::env::set_current_dir(prev_dir).expect("restore cwd");
+        match prev_openai {
+            Some(value) => unsafe { std::env::set_var("OPENAI_API_KEY", value) },
+            None => unsafe { std::env::remove_var("OPENAI_API_KEY") },
+        }
+
+        let identity = embedder.identity();
+        assert_eq!(identity.model_id, "openai:text-embedding-3-small");
+        assert_eq!(identity.dim, 1536);
+        assert_eq!(identity.prefix_scheme_hash, PrefixScheme::NONE.hash());
     }
 }
