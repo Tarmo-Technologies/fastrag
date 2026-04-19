@@ -18,6 +18,7 @@ pub struct OllamaEmbedder {
     base_url: String,
     model: String,
     dim: usize,
+    prefix_scheme: PrefixScheme,
     client: reqwest::blocking::Client,
 }
 
@@ -29,12 +30,21 @@ struct Resp {
 impl OllamaEmbedder {
     pub fn new(model: String) -> Result<Self, EmbedError> {
         let base_url = env::var("OLLAMA_HOST").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+        Self::new_with_prefix(model, base_url, PrefixScheme::NONE)
+    }
+
+    pub fn new_with_prefix(
+        model: String,
+        base_url: String,
+        prefix_scheme: PrefixScheme,
+    ) -> Result<Self, EmbedError> {
         let client = build_client()?;
-        let dim = Self::probe_dim(&client, &base_url, &model)?;
+        let dim = Self::probe_dim(&client, &base_url, &model, prefix_scheme.query)?;
         Ok(Self {
             base_url,
             model,
             dim,
+            prefix_scheme,
             client,
         })
     }
@@ -45,6 +55,7 @@ impl OllamaEmbedder {
             base_url,
             model,
             dim,
+            prefix_scheme: PrefixScheme::NONE,
             client: build_client().expect("reqwest client"),
         }
     }
@@ -53,7 +64,7 @@ impl OllamaEmbedder {
         EmbedderIdentity {
             model_id: format!("ollama:{}", self.model),
             dim: self.dim,
-            prefix_scheme_hash: PrefixScheme::NONE.hash(),
+            prefix_scheme_hash: self.prefix_scheme.hash(),
         }
     }
 
@@ -61,9 +72,10 @@ impl OllamaEmbedder {
         client: &reqwest::blocking::Client,
         base_url: &str,
         model: &str,
+        query_prefix: &str,
     ) -> Result<usize, EmbedError> {
         let url = format!("{}/api/embeddings", base_url);
-        let body = json!({ "model": model, "prompt": "a" });
+        let body = json!({ "model": model, "prompt": format!("{query_prefix}a") });
         let resp = client
             .post(&url)
             .json(&body)
@@ -120,11 +132,11 @@ impl DynEmbedderTrait for OllamaEmbedder {
     }
 
     fn prefix_scheme(&self) -> PrefixScheme {
-        PrefixScheme::NONE
+        self.prefix_scheme.clone()
     }
 
     fn prefix_scheme_hash(&self) -> u64 {
-        PrefixScheme::NONE.hash()
+        self.prefix_scheme.hash()
     }
 
     /// Override default — model_id() is a placeholder so we build from runtime state.
@@ -137,12 +149,20 @@ impl DynEmbedderTrait for OllamaEmbedder {
     }
 
     fn embed_query_dyn(&self, texts: &[QueryText]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        let refs: Vec<&str> = texts.iter().map(QueryText::as_str).collect();
+        let prefixed: Vec<String> = texts
+            .iter()
+            .map(|text| format!("{}{}", self.prefix_scheme.query, text.as_str()))
+            .collect();
+        let refs: Vec<&str> = prefixed.iter().map(String::as_str).collect();
         self.call(&refs)
     }
 
     fn embed_passage_dyn(&self, texts: &[PassageText]) -> Result<Vec<Vec<f32>>, EmbedError> {
-        let refs: Vec<&str> = texts.iter().map(PassageText::as_str).collect();
+        let prefixed: Vec<String> = texts
+            .iter()
+            .map(|text| format!("{}{}", self.prefix_scheme.passage, text.as_str()))
+            .collect();
+        let refs: Vec<&str> = prefixed.iter().map(String::as_str).collect();
         self.call(&refs)
     }
 }

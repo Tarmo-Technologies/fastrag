@@ -21,7 +21,10 @@ fn query_accepts_embedder_profile_and_config() {
     .expect("CLI should parse");
 
     let debug = format!("{cli:?}");
-    assert!(debug.contains("vams"), "debug output did not contain profile: {debug}");
+    assert!(
+        debug.contains("vams"),
+        "debug output did not contain profile: {debug}"
+    );
     assert!(
         debug.contains("fastrag.toml"),
         "debug output did not contain config path: {debug}"

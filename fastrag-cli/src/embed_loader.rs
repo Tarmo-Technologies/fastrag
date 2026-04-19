@@ -4,23 +4,19 @@ use std::sync::Arc;
 
 use fastrag::DynEmbedder;
 use fastrag_embed::{
-    BgeSmallEmbedder, DynEmbedderTrait, Embedder,
+    BgeSmallEmbedder, DynEmbedderTrait, EmbedError, Embedder, EmbedderIdentity, PrefixScheme,
     http::{
         ollama::OllamaEmbedder,
         openai::{OpenAiLarge, OpenAiSmall},
     },
-    llama_cpp::{HfHubDownloader, LlamaServerConfig, Qwen3Embed600mQ8, resolve_model_path_default},
+    llama_cpp::{GenericLlamaCppEmbedder, LlamaServerConfig},
 };
+use serde::Deserialize;
 use thiserror::Error;
 
-#[cfg(feature = "retrieval")]
-#[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
-pub enum EmbedderKindArg {
-    Bge,
-    Openai,
-    Ollama,
-    Qwen3Q8,
-}
+use crate::embed_profile::{EmbedBackend, PrefixConfig, ResolvedEmbedderProfile};
+
+const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 
 #[derive(Debug, Error)]
 pub enum EmbedLoaderError {
@@ -30,162 +26,208 @@ pub enum EmbedLoaderError {
     UnsupportedModelPath(PathBuf),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("failed to parse corpus manifest: {0}")]
-    Manifest(String),
-    #[error(
-        "embedder identity mismatch: corpus built with `{existing}`, --embedder specifies `{requested}`"
-    )]
-    KindMismatch { existing: String, requested: String },
 }
 
-impl From<fastrag_embed::EmbedError> for EmbedLoaderError {
-    fn from(e: fastrag_embed::EmbedError) -> Self {
+impl From<EmbedError> for EmbedLoaderError {
+    fn from(e: EmbedError) -> Self {
         EmbedLoaderError::Embed(e.to_string())
     }
 }
 
-#[derive(Clone)]
-pub struct EmbedderOptions {
-    pub kind: Option<EmbedderKindArg>,
-    pub model_path: Option<PathBuf>,
-    pub openai_model: String,
-    pub openai_base_url: String,
-    pub ollama_model: String,
-    pub ollama_url: String,
+#[derive(Deserialize)]
+struct ManifestIdentity {
+    identity: EmbedderIdentity,
 }
 
-pub fn load_for_write(opts: &EmbedderOptions) -> Result<DynEmbedder, EmbedLoaderError> {
-    let kind = opts.kind.unwrap_or(EmbedderKindArg::Bge);
-    build(kind, opts)
+pub fn runtime_identity_for_profile(
+    profile: &ResolvedEmbedderProfile,
+) -> Result<EmbedderIdentity, EmbedLoaderError> {
+    Ok(EmbedderIdentity {
+        model_id: format!("{}:{}", backend_name(profile.backend), profile.model),
+        dim: profile.dim_override.unwrap_or(0),
+        prefix_scheme_hash: prefix_scheme_hash(&profile.prefix),
+    })
 }
 
-pub fn load_for_read(
-    corpus_dir: &Path,
-    opts: &EmbedderOptions,
+pub fn load_from_profile(
+    profile: &ResolvedEmbedderProfile,
 ) -> Result<DynEmbedder, EmbedLoaderError> {
+    match profile.backend {
+        EmbedBackend::Bge => load_bge(profile),
+        EmbedBackend::Openai => load_openai(profile),
+        EmbedBackend::Ollama => load_ollama(profile),
+        EmbedBackend::LlamaCpp => load_llama_cpp(profile),
+    }
+}
+
+pub fn load_from_manifest(corpus_dir: &Path) -> Result<DynEmbedder, EmbedLoaderError> {
     let manifest_path = corpus_dir.join("manifest.json");
-    let bytes = std::fs::read(&manifest_path)?;
-    let value: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|e| EmbedLoaderError::Manifest(e.to_string()))?;
-    let existing = value
-        .get("identity")
-        .and_then(|i| i.get("model_id"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| EmbedLoaderError::Manifest("missing identity.model_id".into()))?
-        .to_string();
+    let manifest: ManifestIdentity = serde_json::from_slice(&std::fs::read(&manifest_path)?)
+        .map_err(|e| EmbedLoaderError::Embed(format!("failed to parse corpus manifest: {e}")))?;
 
-    let detected_kind = detect_from_model_id(&existing)?;
-    let kind = opts.kind.unwrap_or(detected_kind);
-    if kind != detected_kind {
-        return Err(EmbedLoaderError::KindMismatch {
-            existing,
-            requested: kind_name(kind).to_string(),
-        });
+    if manifest.identity.prefix_scheme_hash != PrefixScheme::NONE.hash() {
+        return Err(EmbedLoaderError::Embed(
+            "cannot auto-load a prefix-aware embedder from corpus manifest; use a resolved profile instead"
+                .into(),
+        ));
     }
 
-    let mut effective = opts.clone();
-    if let Some(rest) = existing.strip_prefix("openai:") {
-        effective.openai_model = rest.to_string();
-    } else if let Some(rest) = existing.strip_prefix("ollama:") {
-        effective.ollama_model = rest.to_string();
-    }
-
-    build(kind, &effective)
+    let profile = profile_from_manifest_identity(manifest.identity)?;
+    load_from_profile(&profile)
 }
 
-fn detect_from_model_id(existing: &str) -> Result<EmbedderKindArg, EmbedLoaderError> {
-    if existing.starts_with("openai:") {
-        Ok(EmbedderKindArg::Openai)
-    } else if existing.starts_with("ollama:") {
-        Ok(EmbedderKindArg::Ollama)
-    } else if existing == BgeSmallEmbedder::MODEL_ID {
-        Ok(EmbedderKindArg::Bge)
-    } else if existing == Qwen3Embed600mQ8::MODEL_ID {
-        Ok(EmbedderKindArg::Qwen3Q8)
+fn load_bge(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, EmbedLoaderError> {
+    let path = PathBuf::from(&profile.model);
+    let embedder = if profile.model == BgeSmallEmbedder::MODEL_ID {
+        BgeSmallEmbedder::from_hf_hub()?
+    } else if path.exists() {
+        BgeSmallEmbedder::from_local(&path)?
     } else {
-        Err(EmbedLoaderError::Manifest(format!(
-            "unrecognized identity.model_id `{existing}`; pass --embedder explicitly"
-        )))
+        return Err(EmbedLoaderError::UnsupportedModelPath(path));
+    };
+    Ok(Arc::new(embedder) as Arc<dyn DynEmbedderTrait>)
+}
+
+fn load_openai(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, EmbedLoaderError> {
+    match profile.model.as_str() {
+        "text-embedding-3-small" => {
+            let mut embedder = OpenAiSmall::new()?;
+            if let Some(base_url) = &profile.base_url {
+                embedder = embedder.with_base_url(base_url.clone());
+            }
+            Ok(Arc::new(embedder) as Arc<dyn DynEmbedderTrait>)
+        }
+        "text-embedding-3-large" => {
+            let mut embedder = OpenAiLarge::new()?;
+            if let Some(base_url) = &profile.base_url {
+                embedder = embedder.with_base_url(base_url.clone());
+            }
+            Ok(Arc::new(embedder) as Arc<dyn DynEmbedderTrait>)
+        }
+        other => Err(EmbedLoaderError::Embed(format!(
+            "unknown OpenAI model `{other}`; supported: text-embedding-3-small, text-embedding-3-large"
+        ))),
     }
 }
 
-fn kind_name(kind: EmbedderKindArg) -> &'static str {
-    match kind {
-        EmbedderKindArg::Bge => "bge",
-        EmbedderKindArg::Openai => "openai",
-        EmbedderKindArg::Ollama => "ollama",
-        EmbedderKindArg::Qwen3Q8 => "qwen3-q8",
+fn load_ollama(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, EmbedLoaderError> {
+    let embedder = OllamaEmbedder::new_with_prefix(
+        profile.model.clone(),
+        profile
+            .base_url
+            .clone()
+            .unwrap_or_else(|| DEFAULT_OLLAMA_BASE_URL.to_string()),
+        prefix_scheme_for_config(&profile.prefix),
+    )?;
+    Ok(Arc::new(embedder) as Arc<dyn DynEmbedderTrait>)
+}
+
+fn load_llama_cpp(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, EmbedLoaderError> {
+    let model_path = PathBuf::from(&profile.model);
+    if !model_path.exists() {
+        return Err(EmbedLoaderError::UnsupportedModelPath(model_path));
+    }
+
+    let cfg = LlamaServerConfig {
+        binary_path: find_llama_server()?,
+        port: free_port()?,
+        health_timeout: std::time::Duration::from_secs(120),
+        extra_args: vec![
+            "--model".to_string(),
+            profile.model.clone(),
+            "--embedding".to_string(),
+            "--pooling".to_string(),
+            "mean".to_string(),
+        ],
+        skip_version_check: false,
+    };
+
+    let embedder = GenericLlamaCppEmbedder::load(
+        cfg,
+        profile.model.clone(),
+        prefix_scheme_for_config(&profile.prefix),
+    )?;
+    Ok(Arc::new(embedder) as Arc<dyn DynEmbedderTrait>)
+}
+
+fn backend_name(backend: EmbedBackend) -> &'static str {
+    match backend {
+        EmbedBackend::Bge => "bge",
+        EmbedBackend::Openai => "openai",
+        EmbedBackend::Ollama => "ollama",
+        EmbedBackend::LlamaCpp => "llama-cpp",
     }
 }
 
-fn build(kind: EmbedderKindArg, opts: &EmbedderOptions) -> Result<DynEmbedder, EmbedLoaderError> {
-    match kind {
-        EmbedderKindArg::Bge => {
-            let e = match &opts.model_path {
-                Some(path) => BgeSmallEmbedder::from_local(path)?,
-                None => BgeSmallEmbedder::from_hf_hub()?,
-            };
-            let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
-            Ok(arc)
-        }
-        EmbedderKindArg::Openai => match opts.openai_model.as_str() {
-            "text-embedding-3-small" => {
-                let e = OpenAiSmall::new()?.with_base_url(opts.openai_base_url.clone());
-                let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
-                Ok(arc)
-            }
-            "text-embedding-3-large" => {
-                let e = OpenAiLarge::new()?.with_base_url(opts.openai_base_url.clone());
-                let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
-                Ok(arc)
-            }
-            other => Err(EmbedLoaderError::Manifest(format!(
-                "unknown OpenAI model `{other}` — supported: text-embedding-3-small, text-embedding-3-large"
-            ))),
-        },
-        EmbedderKindArg::Ollama => {
-            unsafe { std::env::set_var("OLLAMA_HOST", &opts.ollama_url) };
-            let e = OllamaEmbedder::new(opts.ollama_model.clone())?;
-            let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
-            Ok(arc)
-        }
-        EmbedderKindArg::Qwen3Q8 => {
-            let binary_path = find_llama_server()?;
-            let port = free_port()?;
-            let model_path =
-                resolve_model_path_default(&Qwen3Embed600mQ8::model_source(), &HfHubDownloader)?;
-            let cfg = LlamaServerConfig {
-                binary_path,
-                port,
-                health_timeout: std::time::Duration::from_secs(120),
-                extra_args: vec![
-                    "--model".to_string(),
-                    model_path.display().to_string(),
-                    "--embedding".to_string(),
-                    "--pooling".to_string(),
-                    "mean".to_string(),
-                ],
-                skip_version_check: false,
-            };
-            let e = Qwen3Embed600mQ8::load(cfg)?;
-            let arc: Arc<dyn DynEmbedderTrait> = Arc::new(e);
-            Ok(arc)
-        }
+fn profile_from_manifest_identity(
+    identity: EmbedderIdentity,
+) -> Result<ResolvedEmbedderProfile, EmbedLoaderError> {
+    let (backend, model) = if let Some(model) = identity.model_id.strip_prefix("openai:") {
+        (EmbedBackend::Openai, model.to_string())
+    } else if let Some(model) = identity.model_id.strip_prefix("ollama:") {
+        (EmbedBackend::Ollama, model.to_string())
+    } else if let Some(model) = identity.model_id.strip_prefix("llama-cpp:") {
+        (EmbedBackend::LlamaCpp, model.to_string())
+    } else if identity.model_id == BgeSmallEmbedder::MODEL_ID {
+        (EmbedBackend::Bge, identity.model_id)
+    } else {
+        return Err(EmbedLoaderError::Embed(format!(
+            "unsupported corpus manifest embedder `{}`",
+            identity.model_id
+        )));
+    };
+
+    Ok(ResolvedEmbedderProfile {
+        name: "manifest".into(),
+        backend,
+        model,
+        base_url: None,
+        prefix: PrefixConfig::default(),
+        dim_override: Some(identity.dim),
+    })
+}
+
+fn prefix_scheme_for_config(prefix: &PrefixConfig) -> PrefixScheme {
+    PrefixScheme::new(
+        intern_prefix(prefix.query.clone()),
+        intern_prefix(prefix.passage.clone()),
+    )
+}
+
+fn intern_prefix(prefix: String) -> &'static str {
+    if prefix.is_empty() {
+        ""
+    } else {
+        Box::leak(prefix.into_boxed_str())
     }
+}
+
+fn prefix_scheme_hash(prefix: &PrefixConfig) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for &byte in prefix.query.as_bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash ^= 0;
+    hash = hash.wrapping_mul(0x100000001b3);
+    for &byte in prefix.passage.as_bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 fn find_llama_server() -> Result<PathBuf, EmbedLoaderError> {
-    if let Ok(p) = std::env::var("LLAMA_SERVER_PATH") {
-        let path = PathBuf::from(p);
+    if let Ok(path) = std::env::var("LLAMA_SERVER_PATH") {
+        let path = PathBuf::from(path);
         if path.exists() {
             return Ok(path);
         }
     }
+
     which_llama_server().ok_or_else(|| {
         EmbedLoaderError::Embed(
-            "llama-server not found in $PATH; install from \
-             https://github.com/ggml-org/llama.cpp/releases \
-             or set LLAMA_SERVER_PATH"
+            "llama-server not found in $PATH; install from https://github.com/ggml-org/llama.cpp/releases or set LLAMA_SERVER_PATH"
                 .into(),
         )
     })
@@ -197,8 +239,7 @@ fn which_llama_server() -> Option<PathBuf> {
         .output()
         .ok()?;
     if output.status.success() {
-        let s = String::from_utf8_lossy(&output.stdout);
-        let path = PathBuf::from(s.trim());
+        let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
         if path.exists() {
             return Some(path);
         }
@@ -207,9 +248,10 @@ fn which_llama_server() -> Option<PathBuf> {
 }
 
 fn free_port() -> Result<u16, EmbedLoaderError> {
-    let l = TcpListener::bind("127.0.0.1:0")
+    let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| EmbedLoaderError::Embed(format!("bind ephemeral port: {e}")))?;
-    Ok(l.local_addr()
+    Ok(listener
+        .local_addr()
         .map_err(|e| EmbedLoaderError::Embed(format!("local_addr: {e}")))?
         .port())
 }

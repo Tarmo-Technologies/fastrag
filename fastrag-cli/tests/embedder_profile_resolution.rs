@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use fastrag_cli::embed_profile::{EmbedBackend, PrefixConfig};
+use fastrag_cli::embed_profile::{EmbedBackend, PrefixConfig, ResolvedEmbedderProfile};
 
 fn write_config(dir: &tempfile::TempDir, contents: &str) -> PathBuf {
     let path = dir.path().join("fastrag.toml");
@@ -161,4 +161,54 @@ use_catalog_defaults = true
         err.to_string().contains("missing default embedder profile"),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn resolved_ollama_profile_produces_runtime_identity_shape() {
+    let profile = ResolvedEmbedderProfile {
+        name: "vams".into(),
+        backend: EmbedBackend::Ollama,
+        model: "mixedbread-ai/mxbai-embed-large-v1".into(),
+        base_url: Some("http://localhost:11434".into()),
+        prefix: PrefixConfig {
+            query: "Represent this sentence for searching relevant passages: ".into(),
+            passage: "Represent this passage for retrieval: ".into(),
+        },
+        dim_override: Some(1024),
+    };
+
+    let identity = fastrag_cli::embed_loader::runtime_identity_for_profile(&profile)
+        .expect("runtime identity");
+
+    assert_eq!(
+        identity.model_id,
+        "ollama:mixedbread-ai/mxbai-embed-large-v1"
+    );
+    assert_eq!(identity.dim, 1024);
+    assert_ne!(identity.prefix_scheme_hash, 0);
+}
+
+#[test]
+fn resolved_llama_cpp_profile_produces_runtime_identity_shape() {
+    let profile = ResolvedEmbedderProfile {
+        name: "local".into(),
+        backend: EmbedBackend::LlamaCpp,
+        model: "/models/Qwen3-Embedding-0.6B-Q8_0.gguf".into(),
+        base_url: None,
+        prefix: PrefixConfig {
+            query: "query: ".into(),
+            passage: "passage: ".into(),
+        },
+        dim_override: Some(1024),
+    };
+
+    let identity = fastrag_cli::embed_loader::runtime_identity_for_profile(&profile)
+        .expect("runtime identity");
+
+    assert_eq!(
+        identity.model_id,
+        "llama-cpp:/models/Qwen3-Embedding-0.6B-Q8_0.gguf"
+    );
+    assert_eq!(identity.dim, 1024);
+    assert_ne!(identity.prefix_scheme_hash, 0);
 }

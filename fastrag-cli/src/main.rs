@@ -11,7 +11,10 @@ use clap::Parser;
 use fastrag::ops::{self, collect_files, output_path, render_document};
 use fastrag::registry::ParserRegistry;
 use fastrag::{ChunkingStrategy, DynEmbedderTrait, OutputFormat};
-use fastrag_cli::args::{self, ChunkStrategyArg, Cli, Command, OutputFormatArg};
+use fastrag_cli::args::{
+    self, ChunkStrategyArg, Cli, Command, EmbedderProfileCliArgs, OutputFormatArg,
+};
+use fastrag_cli::config::load_app_config;
 #[cfg(feature = "contextual")]
 use fastrag_cli::context_loader::load_context_state;
 use fastrag_cli::embed_loader;
@@ -19,15 +22,30 @@ use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::Semaphore;
 
 #[cfg(feature = "retrieval")]
-fn default_embedder_options() -> embed_loader::EmbedderOptions {
-    embed_loader::EmbedderOptions {
-        kind: None,
-        model_path: None,
-        openai_model: "text-embedding-3-small".to_string(),
-        openai_base_url: "https://api.openai.com/v1".to_string(),
-        ollama_model: "nomic-embed-text".to_string(),
-        ollama_url: "http://localhost:11434".to_string(),
+fn load_runtime_embedder(embedder_profile: &EmbedderProfileCliArgs) -> fastrag::DynEmbedder {
+    let mut overrides = Vec::new();
+    if let Some(ollama_url) = embedder_profile.ollama_url.as_deref() {
+        overrides.push(("ollama_url", ollama_url));
     }
+    if let Some(openai_base_url) = embedder_profile.openai_base_url.as_deref() {
+        overrides.push(("openai_base_url", openai_base_url));
+    }
+
+    let config = load_app_config(embedder_profile.config.clone()).unwrap_or_else(|e| {
+        eprintln!("Error resolving embedder profile: {e}");
+        std::process::exit(2);
+    });
+    let resolved = config
+        .resolve_embedder_profile(embedder_profile.embedder_profile.as_deref(), &overrides)
+        .unwrap_or_else(|e| {
+            eprintln!("Error resolving embedder profile: {e}");
+            std::process::exit(2);
+        });
+
+    embed_loader::load_from_profile(&resolved).unwrap_or_else(|e| {
+        eprintln!("Error loading embedder: {e}");
+        std::process::exit(1);
+    })
 }
 
 fn init_tracing() {
@@ -153,6 +171,7 @@ async fn main() {
             chunk_separators,
             similarity_threshold,
             percentile_threshold,
+            embedder_profile,
             metadata,
             #[cfg(feature = "contextual")]
             contextualize,
@@ -259,11 +278,7 @@ async fn main() {
                             similarity_threshold,
                             percentile_threshold,
                         );
-                        let opts = default_embedder_options();
-                        let embedder = embed_loader::load_for_write(&opts).unwrap_or_else(|e| {
-                            eprintln!("Error loading embedder: {e}");
-                            std::process::exit(1);
-                        });
+                        let embedder = load_runtime_embedder(&embedder_profile);
                         match fastrag::ingest::engine::index_jsonl(
                             &input,
                             &corpus,
@@ -298,11 +313,7 @@ async fn main() {
                     similarity_threshold,
                     percentile_threshold,
                 );
-                let opts = default_embedder_options();
-                let embedder = embed_loader::load_for_write(&opts).unwrap_or_else(|e| {
-                    eprintln!("Error loading embedder: {e}");
-                    std::process::exit(1);
-                });
+                let embedder = load_runtime_embedder(&embedder_profile);
                 let base_metadata: std::collections::BTreeMap<String, String> =
                     metadata.into_iter().collect();
 
@@ -489,6 +500,7 @@ async fn main() {
             corpus,
             top_k,
             format,
+            embedder_profile,
             filter,
             filter_json,
             hybrid,
@@ -511,11 +523,7 @@ async fn main() {
             ..
         } => {
             tokio::task::block_in_place(|| {
-                let opts = default_embedder_options();
-                let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
-                    eprintln!("Error loading embedder: {e}");
-                    std::process::exit(1);
-                });
+                let embedder = load_runtime_embedder(&embedder_profile);
                 let filter_expr: Option<fastrag::filter::FilterExpr> =
                     match (filter.as_deref(), filter_json.as_deref()) {
                         (Some(s), None) => Some(args::parse_filter_expr(s).unwrap_or_else(|e| {
@@ -660,14 +668,10 @@ async fn main() {
         #[cfg(feature = "retrieval")]
         Command::CorpusInfo {
             corpus,
-            ..
+            embedder_profile,
         } => {
             tokio::task::block_in_place(|| {
-                let opts = default_embedder_options();
-                let emb = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
-                    eprintln!("Error loading embedder: {e}");
-                    std::process::exit(1);
-                });
+                let emb = load_runtime_embedder(&embedder_profile);
                 match ops::corpus_info(&corpus, emb.as_ref() as &dyn DynEmbedderTrait) {
                     Ok(info) => {
                         println!("{}", serde_json::to_string_pretty(&info).unwrap());
@@ -738,6 +742,7 @@ async fn main() {
         Command::ServeHttp {
             corpus,
             port,
+            embedder_profile,
             token,
             dense_only,
             cwe_expand,
@@ -793,17 +798,7 @@ async fn main() {
                 registry.register(name, path);
             }
 
-            // Use first corpus path for embedder auto-detection (reads the manifest).
-            let first_path = corpus
-                .first()
-                .map(|s| fastrag::corpus::CorpusRegistry::parse_corpus_arg(s).1)
-                .unwrap(); // required = true guarantees at least one
-
-            let opts = default_embedder_options();
-            let embedder = embed_loader::load_for_read(&first_path, &opts).unwrap_or_else(|e| {
-                eprintln!("Error loading embedder: {e}");
-                std::process::exit(1);
-            });
+            let embedder = load_runtime_embedder(&embedder_profile);
 
             let mut rerank_cfg = fastrag_cli::http::HttpRerankerConfig::default();
 
@@ -843,26 +838,11 @@ async fn main() {
         #[cfg(feature = "store")]
         Command::Delete { corpus, id } => {
             tokio::task::block_in_place(|| {
-                let opts = embed_loader::EmbedderOptions {
-                    kind: None,
-                    model_path: None,
-                    openai_model: String::new(),
-                    openai_base_url: String::new(),
-                    ollama_model: String::new(),
-                    ollama_url: String::new(),
-                };
-                let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
-                    eprintln!("Error loading embedder: {e}");
-                    std::process::exit(1);
-                });
-                let mut store = fastrag_store::Store::open(
-                    &corpus,
-                    embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
-                )
-                .unwrap_or_else(|e| {
-                    eprintln!("Error opening corpus: {e}");
-                    std::process::exit(1);
-                });
+                let mut store =
+                    fastrag_store::Store::open_no_embedder(&corpus).unwrap_or_else(|e| {
+                        eprintln!("Error opening corpus: {e}");
+                        std::process::exit(1);
+                    });
                 let deleted = store.delete_by_external_id(&id).unwrap_or_else(|e| {
                     eprintln!("Error deleting: {e}");
                     std::process::exit(1);
@@ -877,26 +857,11 @@ async fn main() {
         #[cfg(feature = "store")]
         Command::Compact { corpus } => {
             tokio::task::block_in_place(|| {
-                let opts = embed_loader::EmbedderOptions {
-                    kind: None,
-                    model_path: None,
-                    openai_model: String::new(),
-                    openai_base_url: String::new(),
-                    ollama_model: String::new(),
-                    ollama_url: String::new(),
-                };
-                let embedder = embed_loader::load_for_read(&corpus, &opts).unwrap_or_else(|e| {
-                    eprintln!("Error loading embedder: {e}");
-                    std::process::exit(1);
-                });
-                let mut store = fastrag_store::Store::open(
-                    &corpus,
-                    embedder.as_ref() as &dyn fastrag::DynEmbedderTrait,
-                )
-                .unwrap_or_else(|e| {
-                    eprintln!("Error opening corpus: {e}");
-                    std::process::exit(1);
-                });
+                let mut store =
+                    fastrag_store::Store::open_no_embedder(&corpus).unwrap_or_else(|e| {
+                        eprintln!("Error opening corpus: {e}");
+                        std::process::exit(1);
+                    });
                 let before = store.tombstone_count();
                 store.compact();
                 store.save().unwrap_or_else(|e| {

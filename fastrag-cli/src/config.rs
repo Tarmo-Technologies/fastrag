@@ -120,6 +120,8 @@ impl AppConfig {
         for (key, value) in cli_overrides {
             if *key == "ollama_url" && profile.backend == EmbedBackend::Ollama {
                 base_url = Some((*value).to_string());
+            } else if *key == "openai_base_url" && profile.backend == EmbedBackend::Openai {
+                base_url = Some((*value).to_string());
             }
         }
 

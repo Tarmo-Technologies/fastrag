@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use fastrag_cli::args::RerankerKindArg;
-use fastrag_cli::embed_loader::{self, EmbedderOptions};
+use fastrag_cli::embed_loader;
 use fastrag_cli::rerank_loader;
 use fastrag_eval::{
     EvalError,
@@ -35,16 +35,8 @@ pub fn run_config_matrix(
         gs.entries.truncate(n);
     }
 
-    // Auto-detect embedder from corpus manifest.
-    let opts = EmbedderOptions {
-        kind: None,
-        model_path: None,
-        openai_model: "text-embedding-3-small".into(),
-        openai_base_url: "https://api.openai.com/v1".into(),
-        ollama_model: "nomic-embed-text".into(),
-        ollama_url: "http://localhost:11434".into(),
-    };
-    let embedder = embed_loader::load_for_read(&ctx_corpus, &opts)
+    // Auto-detect embedder from corpus manifest for eval-only matrix runs.
+    let embedder = embed_loader::load_from_manifest(&ctx_corpus)
         .map_err(|e| EvalError::Runner(format!("loading embedder: {e}")))?;
 
     // Load reranker via llama-cpp (external process, ~1G RSS) instead of ONNX

@@ -11,6 +11,7 @@ mod handle;
 mod model_source;
 mod pool;
 mod qwen3;
+mod runtime;
 
 pub use client::LlamaCppClient;
 pub use completion_preset::{CompletionError, DefaultCompletionPreset, LlamaCppChatClient};
@@ -20,3 +21,4 @@ pub use model_source::{
 };
 pub use pool::LlamaServerPool;
 pub use qwen3::Qwen3Embed600mQ8;
+pub use runtime::GenericLlamaCppEmbedder;
