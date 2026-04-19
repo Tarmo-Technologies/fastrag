@@ -1,4 +1,6 @@
 pub mod args;
+pub mod config;
+pub mod embed_profile;
 
 #[cfg(feature = "contextual")]
 pub mod context_loader;
