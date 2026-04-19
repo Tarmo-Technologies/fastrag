@@ -66,3 +66,9 @@ FastRAG now resolves retrieval embedders from `fastrag.toml`. Add a checked-in
 example config, mount it into the service, and update any `index`, `query`, or
 `serve-http` invocations to pass `--config` plus `--embedder-profile`. Treat
 endpoint/model selection as profile data, not CLI preset wiring.
+
+## Downstream scan result
+
+- `pentest-scribe`: local scan found no fastrag invocations or removed flag usage
+- `pentest-storm`: local scan found no fastrag invocations or removed flag usage
+- Follow-up issues filed: none
