@@ -131,6 +131,16 @@ class AsyncFastRAGClient:
         _raise_for_status(resp)
         return [CorpusInfo.model_validate(c) for c in resp.json()["corpora"]]
 
+    async def get_kev(self, cve_id: str) -> SearchHit | None:
+        resp = await self._client.get(f"/kev/{cve_id}")
+        if resp.status_code == 404:
+            return None
+        _raise_for_status(resp)
+        hits = resp.json().get("hits", [])
+        if not hits:
+            return None
+        return SearchHit.model_validate(hits[0])
+
     async def health(self) -> bool:
         try:
             resp = await self._client.get("/health")

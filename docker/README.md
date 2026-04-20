@@ -26,7 +26,7 @@ removed `--embedder qwen3-q8` preset directly.
 | Variable                | Required | Purpose                                                 |
 |-------------------------|----------|---------------------------------------------------------|
 | `BUNDLE_NAME`           | yes      | Directory under `/var/lib/fastrag/bundles/` to load.    |
-| `FASTRAG_TOKEN`         | no       | Read token for `/query`, `/cve`, `/cwe`, etc.           |
+| `FASTRAG_TOKEN`         | no       | Read token for `/query`, `/cve`, `/cwe`, `/kev`, etc.   |
 | `FASTRAG_ADMIN_TOKEN`   | no       | Admin token for `/admin/reload`. Must differ from read. |
 | `BUNDLES_DIR`           | no       | Override bundles root (default `/var/lib/fastrag/bundles`). |
 | `PORT`                  | no       | Listen port inside the container (default `8080`).      |
@@ -42,6 +42,19 @@ docker run --rm -p 8080:8080 \
     -e FASTRAG_ADMIN_TOKEN=<admin-token> \
     fastrag:<tag>
 ```
+
+## Lookup endpoints
+
+With `FASTRAG_TOKEN` configured, the bundled HTTP API exposes direct lookup
+routes for downstream consumers such as VAMS:
+
+- `GET /cve/{cve_id}` → exact CVE record lookup from the `cve` corpus
+- `GET /cwe/{cwe_id}` → exact CWE record lookup from the `cwe` corpus
+- `GET /cwe/relation?cwe_id=89` → CWE ancestor/descendant traversal
+- `GET /kev/{cve_id}` → exact KEV record lookup from the `kev` corpus
+
+All direct lookup routes return `{"hits": [...]}` on success and `404` with a
+typed `*_not_found` error when the corpus contains no matching record.
 
 ## Build, size, audit, smoke
 

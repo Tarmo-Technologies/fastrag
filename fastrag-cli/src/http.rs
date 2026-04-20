@@ -819,6 +819,7 @@ fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             axum::routing::post(similar_handler).layer(DefaultBodyLimit::max(1024 * 1024)),
         )
         .route("/cve/:id", get(get_cve_handler))
+        .route("/kev/:id", get(get_kev_handler))
         .route("/cwe/relation", get(cwe_relation_handler))
         .route("/cwe/:id", get(get_cwe_handler))
         .route_layer(middleware::from_fn_with_state(
@@ -1162,37 +1163,41 @@ async fn get_cve_handler(
         )
             .into_response();
     }
-    let Some(bundle) = state.bundle.as_ref() else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "bundle_not_loaded"})),
-        )
-            .into_response();
-    };
-    let guard = bundle.load_full();
-    let Some(corpus) = guard.corpora.get("cve") else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "corpus_cve_missing"})),
-        )
-            .into_response();
-    };
+    direct_lookup_by_field(
+        &state,
+        "cve",
+        "corpus_cve_missing",
+        "cve_not_found",
+        "cve_id",
+        &id,
+        json!(id),
+    )
+}
 
-    match fastrag::corpus::lookup_by_field(corpus.dir(), "cve_id", &id) {
-        Ok(hits) if !hits.is_empty() => {
-            (StatusCode::OK, Json(json!({"hits": hits}))).into_response()
-        }
-        Ok(_) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "cve_not_found", "id": id})),
+async fn get_kev_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    if !params.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "unexpected_query_params",
+                "message": "/kev/{id} is a direct lookup; query params not allowed"
+            })),
         )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "lookup_failed", "message": e.to_string()})),
-        )
-            .into_response(),
+            .into_response();
     }
+    direct_lookup_by_field(
+        &state,
+        "kev",
+        "corpus_kev_missing",
+        "kev_not_found",
+        "cve_id",
+        &id,
+        json!(id),
+    )
 }
 
 async fn get_cwe_handler(
@@ -1236,6 +1241,46 @@ async fn get_cwe_handler(
         Ok(_) => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "cwe_not_found", "id": cwe_id})),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "lookup_failed", "message": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+fn direct_lookup_by_field(
+    state: &AppState,
+    corpus_name: &str,
+    missing_corpus_error: &str,
+    not_found_error: &str,
+    field_name: &str,
+    value: &str,
+    response_id: serde_json::Value,
+) -> Response {
+    let Some(bundle) = state.bundle.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "bundle_not_loaded"})),
+        )
+            .into_response();
+    };
+    let guard = bundle.load_full();
+    let Some(corpus) = guard.corpora.get(corpus_name) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": missing_corpus_error})),
+        )
+            .into_response();
+    };
+
+    match fastrag::corpus::lookup_by_field(corpus.dir(), field_name, value) {
+        Ok(hits) if !hits.is_empty() => (StatusCode::OK, Json(json!({"hits": hits}))).into_response(),
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": not_found_error, "id": response_id})),
         )
             .into_response(),
         Err(e) => (
