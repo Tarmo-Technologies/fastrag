@@ -43,6 +43,14 @@ fastrag query "payment terms" --corpus ./corpus --config ./fastrag.toml --embedd
 - Start `serve-http` with `--config /etc/fastrag/fastrag.toml --embedder-profile vams`.
 - Keep the findings corpus mount separate from the bundle mount; only the
   embedder selection moved.
+- Update any VAMS-owned `fastrag index` command for `vams-findings` to pass the
+  same `--config` and `--embedder-profile vams` arguments.
+- No FastRAG HTTP client change is required in VAMS itself. `FASTRAG_URL`,
+  tokens, and the request/response surface stay the same.
+
+For the standalone airgap image, the container now writes its own temporary
+profile config internally. That deployment path still only requires VAMS to
+point at the host via `FASTRAG_URL`.
 
 ## Downstream issue draft: pentest-scribe
 

@@ -7,6 +7,7 @@ How to wire [fastrag](../README.md) into VAMS as a retrieval + reference-lookup 
 - fastrag is a standalone HTTP service VAMS calls for **finding dedup** (`POST /similar`) and **CWE/KEV reference lookups** (`GET /cwe/{id}`, `GET /cwe/relation`).
 - fastrag is **not** an LLM proxy. VAMS vetting keeps calling llama-server directly via `TARMO_VETTING_TIER*` — unchanged.
 - fastrag retrieval now loads from a named embedder profile in `fastrag.toml`; the VAMS example below mounts `/etc/fastrag/fastrag.toml` and starts `serve-http --config ... --embedder-profile vams`.
+- VAMS application code does not need a FastRAG protocol change for this migration. The HTTP endpoints and Python client usage stay the same; only the FastRAG-owned deployment and indexing commands move to profile-based config.
 - Two install paths: (A) add fastrag as a service in VAMS's `docker-compose.yml` (default), or (B) run the standalone [airgap DVD image](./airgap-install.md) on a separate host and point VAMS at it via `FASTRAG_URL`.
 - Smoke test: `curl -fsS $FASTRAG_URL/ready` — expect `{"ready": true, ...}`.
 
@@ -25,6 +26,13 @@ What fastrag does **not** do:
 - **No LLM inference.** Vetting LLM calls stay on `TARMO_VETTING_TIER1_ENDPOINT` / `TARMO_VETTING_TIER2_ENDPOINT` (see `vams/core/vetting_service.py`). fastrag's retrieval embedder comes from the configured profile in `/etc/fastrag/fastrag.toml`; VAMS still only talks to fastrag's HTTP endpoints.
 - **No session state or secrets.** Bundles contain public CVE/CWE/KEV data; the findings corpus must never contain credentials, session tokens, or customer secrets. Scrub before `POST /similar`.
 - **No bundle signature verification** (yet). VAMS verifies bundles via `tarmo_vuln_core.signing.ReportSigner` before calling `POST /admin/reload`. Rust-side verification is deferred to fastrag issue #66.
+
+## What changes in VAMS
+
+- **If VAMS owns the FastRAG process:** update the compose/service command to pass `--config /etc/fastrag/fastrag.toml --embedder-profile vams`, and mount that config file into the FastRAG container.
+- **If VAMS owns finding-corpus indexing:** any `fastrag index` invocation for `vams-findings` must also pass `--config ... --embedder-profile vams`.
+- **If VAMS only calls a separately managed FastRAG host over HTTP:** no VAMS-side code or request-shape change is required. Keep `FASTRAG_URL` and token wiring as-is.
+- **Vetting remains unchanged:** `TARMO_VETTING_TIER1_ENDPOINT` / `TARMO_VETTING_TIER2_ENDPOINT` still point at the existing llama-server path; the embedder profile only affects FastRAG retrieval.
 
 ## Architecture
 
@@ -179,7 +187,7 @@ FASTRAG_TOKEN=<the token printed during install>
 FASTRAG_ADMIN_TOKEN=<admin token — only needed if VAMS will reload bundles>
 ```
 
-Bundle management is done out-of-band on the fastrag host. VAMS consumes only the HTTP surface.
+Bundle management is done out-of-band on the fastrag host. VAMS consumes only the HTTP surface. The published airgap image writes its own temporary `fastrag.toml` internally, so this path does not require VAMS to mount a config file into the standalone FastRAG host.
 
 ## Python client
 

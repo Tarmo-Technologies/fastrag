@@ -45,6 +45,12 @@ docker run -d --name fastrag --restart unless-stopped -p 8080:8080 \
 
 Replace `fastrag:X.Y.Z` with the tag printed by `docker load`. Store `$READ_TOKEN` and `$ADMIN_TOKEN` somewhere durable — regenerating them requires a container restart.
 
+The published airgap image now writes a temporary `fastrag.toml` at startup and
+uses an internal `airgap` embedder profile that points at the bundled
+Qwen3 GGUF through the llama-cpp backend. Operators do not need to mount a
+separate config file for this DVD path unless they are rebuilding the image or
+changing the embedded model/runtime behavior.
+
 ## 5. Confirm readiness
 
 ```bash
