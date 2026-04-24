@@ -10,16 +10,20 @@ for a completely offline security lookup service. Built by
 /usr/local/bin/fastrag              # fastrag CLI (ENTRYPOINT via tini)
 /usr/local/bin/llama-server         # spawned as a subprocess per role
 /opt/fastrag/lib/                   # libonnxruntime.so.* (on LD_LIBRARY_PATH)
-/opt/fastrag/models/                # $FASTRAG_MODEL_DIR
-    Qwen3-Embedding-0.6B-Q8_0.gguf  # llama-cpp embedder for the airgap profile
-    bge-reranker-v2-m3-q8_0.gguf    # reranker (llama-cpp)
-/var/lib/fastrag/bundles/           # mount your bundles here
+/opt/fastrag/models/                              # $FASTRAG_MODEL_DIR
+    snowflake-arctic-embed-l-Q8_0.GGUF            # llama-cpp embedder (airgap profile)
+    reranker-modernbert-gooaq-bce-onnx/           # ONNX reranker (in-process via ort)
+        model.onnx
+        tokenizer.json
+/var/lib/fastrag/bundles/                         # mount your bundles here
 ```
 
 The container entrypoint writes a temporary `fastrag.toml` at startup and
 selects the `airgap` embedder profile. That profile resolves the bundled
-Qwen3 GGUF through the llama-cpp backend, so operators no longer pass the
-removed `--embedder qwen3-q8` preset directly.
+Snowflake Arctic Embed L GGUF through the llama-cpp backend, and `--rerank
+onnx` loads the ModernBERT-gooaq-bce reranker directly via `ort`. Both
+models are Tarmo-owned HuggingFace re-hosts; see the no-Chinese-origin
+compliance note in `feedback_no_chinese_models.md`.
 
 ## Environment variables
 

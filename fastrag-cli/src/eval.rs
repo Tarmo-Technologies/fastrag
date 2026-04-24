@@ -45,7 +45,6 @@ pub async fn run_eval(
     }
     let embedder: Box<dyn DynEmbedderTrait> = match embedder {
         EvalEmbedderArg::Mock => Box::new(fastrag_embed::test_utils::MockEmbedder),
-        EvalEmbedderArg::BgeSmall => Box::new(fastrag_embed::BgeSmallEmbedder::from_hf_hub()?),
     };
     let chunking = match chunking {
         EvalChunkingArg::Basic => fastrag::ChunkingStrategy::Basic {

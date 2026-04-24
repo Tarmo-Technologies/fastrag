@@ -26,8 +26,8 @@ impl LlamaCppContextualizer {
     /// Build a contextualizer from an already-connected chat client and a
     /// caller-provided model identifier. `model_id` is what ends up in the
     /// SQLite cache primary key, so it must uniquely identify the weights
-    /// and quantization — e.g. the [`fastrag_embed::llama_cpp::DefaultCompletionPreset::MODEL_ID`]
-    /// constant, or a user-supplied override from `--context-model`.
+    /// and quantization — callers pass it explicitly (typically from
+    /// `--context-model`).
     pub fn new(client: LlamaCppChatClient, model_id: impl Into<String>) -> Self {
         Self {
             client,

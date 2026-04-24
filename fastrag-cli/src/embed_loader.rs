@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use fastrag::DynEmbedder;
 use fastrag_embed::{
-    BgeSmallEmbedder, DynEmbedderTrait, EmbedError, Embedder, EmbedderIdentity, PrefixScheme,
+    DynEmbedderTrait, EmbedError, EmbedderIdentity, PrefixScheme,
     http::{
         ollama::OllamaEmbedder,
         openai::{OpenAiLarge, OpenAiSmall},
@@ -54,7 +54,6 @@ pub fn load_from_profile(
 ) -> Result<DynEmbedder, EmbedLoaderError> {
     validate_profile(profile)?;
     match profile.backend {
-        EmbedBackend::Bge => load_bge(profile),
         EmbedBackend::Openai => load_openai(profile),
         EmbedBackend::Ollama => load_ollama(profile),
         EmbedBackend::LlamaCpp => load_llama_cpp(profile),
@@ -63,7 +62,7 @@ pub fn load_from_profile(
 
 fn validate_profile(profile: &ResolvedEmbedderProfile) -> Result<(), EmbedLoaderError> {
     match profile.backend {
-        EmbedBackend::Bge | EmbedBackend::Openai => {
+        EmbedBackend::Openai => {
             if has_prefix_override(&profile.prefix) {
                 return Err(EmbedLoaderError::Embed(format!(
                     "embedder profile `{}` on backend `{}` has an unsupported prefix override",
@@ -102,18 +101,6 @@ pub fn load_from_manifest(corpus_dir: &Path) -> Result<DynEmbedder, EmbedLoaderE
 
     let profile = profile_from_manifest_identity(manifest.identity)?;
     load_from_profile(&profile)
-}
-
-fn load_bge(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, EmbedLoaderError> {
-    let path = PathBuf::from(&profile.model);
-    let embedder = if profile.model == BgeSmallEmbedder::MODEL_ID {
-        BgeSmallEmbedder::from_hf_hub()?
-    } else if path.exists() {
-        BgeSmallEmbedder::from_local(&path)?
-    } else {
-        return Err(EmbedLoaderError::UnsupportedModelPath(path));
-    };
-    Ok(Arc::new(embedder) as Arc<dyn DynEmbedderTrait>)
 }
 
 fn load_openai(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, EmbedLoaderError> {
@@ -187,7 +174,6 @@ fn load_llama_cpp(profile: &ResolvedEmbedderProfile) -> Result<DynEmbedder, Embe
 
 fn backend_name(backend: EmbedBackend) -> &'static str {
     match backend {
-        EmbedBackend::Bge => "bge",
         EmbedBackend::Openai => "openai",
         EmbedBackend::Ollama => "ollama",
         EmbedBackend::LlamaCpp => "llama-cpp",
@@ -203,8 +189,6 @@ fn profile_from_manifest_identity(
         (EmbedBackend::Ollama, model.to_string())
     } else if let Some(model) = identity.model_id.strip_prefix("llama-cpp:") {
         (EmbedBackend::LlamaCpp, model.to_string())
-    } else if identity.model_id == BgeSmallEmbedder::MODEL_ID {
-        (EmbedBackend::Bge, identity.model_id)
     } else {
         return Err(EmbedLoaderError::Embed(format!(
             "unsupported corpus manifest embedder `{}`",
@@ -224,7 +208,7 @@ fn profile_from_manifest_identity(
 
 fn manifest_dim_override(backend: EmbedBackend, dim: usize) -> Option<usize> {
     match backend {
-        EmbedBackend::Bge | EmbedBackend::Openai => None,
+        EmbedBackend::Openai => None,
         EmbedBackend::Ollama | EmbedBackend::LlamaCpp => Some(dim),
     }
 }

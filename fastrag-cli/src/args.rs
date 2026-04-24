@@ -50,7 +50,6 @@ pub struct EmbedderProfileCliArgs {
 #[derive(Clone, Copy, ValueEnum, PartialEq, Eq, Debug)]
 pub enum RerankerKindArg {
     Onnx,
-    LlamaCpp,
 }
 
 #[cfg(feature = "store")]
@@ -672,7 +671,6 @@ pub enum ChunkStrategyArg {
 #[derive(Debug, Clone, ValueEnum)]
 pub enum EvalEmbedderArg {
     Mock,
-    BgeSmall,
 }
 
 #[cfg(feature = "eval")]

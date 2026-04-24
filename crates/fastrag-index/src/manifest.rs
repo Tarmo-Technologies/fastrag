@@ -160,7 +160,7 @@ mod v5_tests {
             },
         );
         m.contextualizer = Some(ContextualizerManifest {
-            model_id: "qwen3-4b-instruct-2507-q4-km".to_string(),
+            model_id: "test-contextualizer-v1".to_string(),
             prompt_version: 1,
             prompt_hash: "abc123".to_string(),
         });

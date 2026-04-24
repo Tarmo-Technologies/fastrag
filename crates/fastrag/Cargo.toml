@@ -67,13 +67,15 @@ rtf = ["dep:fastrag-rtf"]
 email = ["dep:fastrag-email"]
 language-detection = ["fastrag-core/language-detection"]
 embedding = ["dep:fastrag-embed"]
-legacy-candle = ["embedding", "fastrag-embed/legacy-candle"]
 index = ["dep:fastrag-index"]
 retrieval = ["embedding", "index", "store", "dep:rayon", "dep:humantime"]
 rerank = ["retrieval", "dep:fastrag-rerank"]
-rerank-llama = ["rerank", "fastrag-rerank/llama-cpp"]
+rerank-onnx = ["rerank", "fastrag-rerank/onnx"]
 contextual = ["retrieval", "dep:fastrag-context", "dep:blake3"]
-contextual-llama = ["contextual", "fastrag-context/llama-cpp"]
+# `contextual-llama` used to enable an in-process llama.cpp contextualizer
+# via the Qwen3-4B Chinese-origin completion preset. Removed in the
+# no-Chinese purge; users of `fastrag context-layer` must supply their
+# own contextualizer config.
 nvd = ["dep:fastrag-nvd"]
 hygiene = ["language-detection", "fastrag-core/language-detection", "dep:whatlang"]
 store = ["dep:fastrag-store", "dep:blake3", "dep:chrono", "dep:fastrag-embed", "dep:fastrag-index"]

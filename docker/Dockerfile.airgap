@@ -3,14 +3,17 @@
 # FastRAG airgap image.
 #
 # Stages:
-#   1. rust-builder  — compiles the fastrag binary with retrieval + rerank-llama
+#   1. rust-builder  — compiles the fastrag binary with retrieval + rerank-onnx
 #                      features. Also captures the libonnxruntime shared lib
 #                      that `ort` downloads into target/.../deps.
 #   2. llama-builder — builds llama.cpp's llama-server binary. fastrag spawns
-#                      this as a subprocess for both the Qwen3 embedder and
-#                      the BGE reranker (one subprocess per role).
-#   3. runtime       — debian:trixie-slim with fastrag, llama-server, tini, and
-#                      pre-staged GGUFs under $FASTRAG_MODEL_DIR. No network
+#                      this as a subprocess for the Snowflake Arctic Embed L
+#                      embedder (GGUF via llama-server --embedding).
+#   3. model-fetcher — downloads the Snowflake Arctic GGUF and the ONNX
+#                      reranker (model.onnx + tokenizer.json) from Tarmo-owned
+#                      private HuggingFace repos using HF_TOKEN (BuildKit secret).
+#   4. runtime       — debian:trixie-slim with fastrag, llama-server, tini, and
+#                      pre-staged models under $FASTRAG_MODEL_DIR. No network
 #                      access required at start-up.
 
 # -----------------------------------------------------------------------------
@@ -21,18 +24,31 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config libssl-dev ca-certificates build-essential cmake git \
     && rm -rf /var/lib/apt/lists/*
+
+# ort v2 was reconfigured to `load-dynamic` (workspace Cargo.toml) because
+# pyke's download CDN has been returning HTTP 504 reliably. Fetch the
+# Microsoft-published prebuilt ONNX Runtime tarball from GitHub and extract
+# libonnxruntime.so.1 into /out/lib/ so the runtime image can dlopen it via
+# LD_LIBRARY_PATH.
+ARG ORT_VERSION=1.24.2
+RUN mkdir -p /out/lib && \
+    cd /tmp && \
+    curl -fL --retry 5 --retry-delay 5 -o onnxruntime.tgz \
+        "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" && \
+    tar -xf onnxruntime.tgz && \
+    cp -v "onnxruntime-linux-x64-${ORT_VERSION}/lib/libonnxruntime.so.${ORT_VERSION}" /out/lib/ && \
+    ln -sf "libonnxruntime.so.${ORT_VERSION}" /out/lib/libonnxruntime.so.1 && \
+    ln -sf "libonnxruntime.so.${ORT_VERSION}" /out/lib/libonnxruntime.so && \
+    rm -rf onnxruntime.tgz "onnxruntime-linux-x64-${ORT_VERSION}"
+
 COPY . .
+# `load-dynamic` means ort-sys does no download at build time; just compile
+# the Rust binary. Runtime uses ORT_DYLIB_PATH / LD_LIBRARY_PATH to locate
+# the dylib supplied above.
 RUN cargo build --release -p fastrag-cli \
         --no-default-features \
-        --features language-detection,retrieval,rerank-llama,store \
+        --features language-detection,retrieval,rerank-onnx,store \
     && strip target/release/fastrag
-
-# The `ort` crate (with `download-binaries` + `copy-dylibs`) drops the ONNX
-# Runtime shared object into target/release/. Collect it for the runtime
-# image; the fastrag binary loads it via rpath at `$ORIGIN`.
-RUN mkdir -p /out/lib && \
-    find target/release -maxdepth 3 -name 'libonnxruntime*.so*' \
-        -exec cp -v {} /out/lib/ \;
 
 # -----------------------------------------------------------------------------
 # 2. llama.cpp builder (produces llama-server)
@@ -57,12 +73,51 @@ RUN git clone --filter=blob:none --branch ${LLAMA_CPP_REF} \
     && strip /src/build/bin/llama-server
 
 # -----------------------------------------------------------------------------
-# 3. Runtime image
+# 3. Model fetcher (isolated so HF_TOKEN never lands in the runtime layer)
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:trixie-slim AS model-fetcher
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG EMBED_REPO=tarmotech/snowflake-arctic-embed-l-gguf-private
+ARG EMBED_FILE=snowflake-arctic-embed-l-Q8_0.GGUF
+ARG RERANK_REPO=tarmotech/reranker-modernbert-gooaq-bce-onnx-private
+ARG RERANK_ONNX_PATH=onnx/model.onnx
+ARG RERANK_TOKENIZER_PATH=tokenizer.json
+# Directory name fastrag's ONNX reranker resolver (`OnnxModelSource::dir_name`)
+# expects. Keep in sync with crates/fastrag-rerank/src/onnx/mod.rs.
+ARG RERANK_DIR_NAME=reranker-modernbert-gooaq-bce-onnx
+
+RUN mkdir -p /models /models/${RERANK_DIR_NAME}
+
+RUN --mount=type=secret,id=hf_token,required=true \
+    set -eu; \
+    HF_TOKEN="$(cat /run/secrets/hf_token)"; \
+    auth="Authorization: Bearer ${HF_TOKEN}"; \
+    base="https://huggingface.co"; \
+    echo "[model-fetcher] downloading ${EMBED_REPO}/${EMBED_FILE}"; \
+    curl -fL --retry 5 --retry-delay 5 -H "$auth" \
+        "${base}/${EMBED_REPO}/resolve/main/${EMBED_FILE}" \
+        -o "/models/${EMBED_FILE}"; \
+    echo "[model-fetcher] downloading ${RERANK_REPO}/${RERANK_ONNX_PATH}"; \
+    curl -fL --retry 5 --retry-delay 5 -H "$auth" \
+        "${base}/${RERANK_REPO}/resolve/main/${RERANK_ONNX_PATH}" \
+        -o "/models/${RERANK_DIR_NAME}/model.onnx"; \
+    echo "[model-fetcher] downloading ${RERANK_REPO}/${RERANK_TOKENIZER_PATH}"; \
+    curl -fL --retry 5 --retry-delay 5 -H "$auth" \
+        "${base}/${RERANK_REPO}/resolve/main/${RERANK_TOKENIZER_PATH}" \
+        -o "/models/${RERANK_DIR_NAME}/tokenizer.json"; \
+    echo "[model-fetcher] sanity checks"; \
+    test -s "/models/${EMBED_FILE}"; \
+    test -s "/models/${RERANK_DIR_NAME}/model.onnx"; \
+    test -s "/models/${RERANK_DIR_NAME}/tokenizer.json"; \
+    head -c 4 "/models/${EMBED_FILE}" | grep -q '^GGUF' || { echo "not a GGUF file"; exit 1; }
+
+# -----------------------------------------------------------------------------
+# 4. Runtime image
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:trixie-slim
-
-ARG EMBED_GGUF_URL=https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf
-ARG RERANK_GGUF_URL=https://huggingface.co/klnstpr/bge-reranker-v2-m3-Q8_0-GGUF/resolve/main/bge-reranker-v2-m3-q8_0.gguf
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tini ca-certificates curl libgomp1 \
@@ -91,17 +146,18 @@ RUN ln -s libggml-base.so /opt/fastrag/lib/libggml-base.so.0 \
     && ln -s libllama.so     /opt/fastrag/lib/libllama.so.0 \
     && ln -s libmtmd.so      /opt/fastrag/lib/libmtmd.so.0
 
-# Pre-stage GGUFs at the exact filenames fastrag's model resolver expects.
-# Keeping these names means FASTRAG_MODEL_DIR lookups hit the cache tier
-# and the HfHub downloader never runs.
-ADD --chmod=0644 ${EMBED_GGUF_URL}  /opt/fastrag/models/Qwen3-Embedding-0.6B-Q8_0.gguf
-ADD --chmod=0644 ${RERANK_GGUF_URL} /opt/fastrag/models/bge-reranker-v2-m3-q8_0.gguf
+# Pre-stage the Snowflake Arctic Embed L GGUF and the ModernBERT ONNX reranker
+# (model.onnx + tokenizer.json). File names match what fastrag's resolver
+# expects via FASTRAG_MODEL_DIR, so no HfHub download is ever attempted at
+# runtime — the container works fully offline.
+COPY --from=model-fetcher /models/ /opt/fastrag/models/
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENV FASTRAG_MODEL_DIR=/opt/fastrag/models \
     LD_LIBRARY_PATH=/opt/fastrag/lib \
+    ORT_DYLIB_PATH=/opt/fastrag/lib/libonnxruntime.so.1 \
     FASTRAG_LOG=info \
     FASTRAG_LOG_FORMAT=json
 

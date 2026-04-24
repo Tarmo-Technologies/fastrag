@@ -39,9 +39,10 @@ pub fn run_config_matrix(
 
     let embedder = load_embedder_for_config_matrix(&ctx_corpus)?;
 
-    // Load reranker via llama-cpp (external process, ~1G RSS) instead of ONNX
-    // (in-process, 6G+ RSS due to ORT arena — OOMs on 7G CI runners).
-    let reranker = rerank_loader::load_reranker(RerankerKindArg::LlamaCpp)
+    // Only the ONNX reranker backend remains after the no-Chinese-origin
+    // purge removed the llama-cpp BGE reranker. ORT arena RSS on load can
+    // spike; wire a fresh CI runner with ≥8 G if this evals at scale.
+    let reranker = rerank_loader::load_reranker(RerankerKindArg::Onnx)
         .map_err(|e| EvalError::Runner(format!("loading reranker: {e}")))?;
 
     let driver = RealCorpusDriver::load(

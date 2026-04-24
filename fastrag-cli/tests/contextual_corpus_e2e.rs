@@ -34,7 +34,7 @@ fn contextualization_enables_pronoun_resolution() {
     }
     let Some(model_path) = support::llama_cpp_embed_model_path() else {
         eprintln!(
-            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/snowflake-arctic-embed-l-Q8_0.GGUF"
         );
         return;
     };
@@ -42,7 +42,7 @@ fn contextualization_enables_pronoun_resolution() {
     let raw_corpus = tempdir().unwrap();
     let ctx_corpus = tempdir().unwrap();
     let cfg = tempdir().unwrap();
-    let config_path = support::write_llama_cpp_config(cfg.path(), "qwen3", &model_path);
+    let config_path = support::write_llama_cpp_config(cfg.path(), "snowflake-arctic", &model_path);
 
     // 1. Index without contextualization.
     Command::cargo_bin("fastrag")

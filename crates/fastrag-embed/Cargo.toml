@@ -1,6 +1,6 @@
 [package]
 name = "fastrag-embed"
-description = "CPU embedding inference for FastRAG (BGE-small-en-v1.5)"
+description = "CPU embedding inference for FastRAG (Snowflake Arctic Embed L via llama.cpp)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,11 +11,7 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json = "1"
 
-# Legacy candle BGE backend (optional — enabled by legacy-candle feature)
-candle-core = { version = "0.10.2", optional = true }
-candle-nn = { version = "0.10.2", optional = true }
-candle-transformers = { version = "0.10.2", optional = true }
-tokenizers = { version = "0.22.2", optional = true }
+# llama-cpp backend dependencies (gated on `llama-cpp` feature)
 hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"], optional = true }
 dirs = { version = "6.0.0", optional = true }
 
@@ -40,11 +36,3 @@ required-features = ["llama-cpp"]
 test-utils = []
 http-embedders = ["dep:reqwest"]
 llama-cpp = ["http-embedders", "dep:nix", "dep:hf-hub", "dep:dirs"]
-legacy-candle = [
-    "dep:candle-core",
-    "dep:candle-nn",
-    "dep:candle-transformers",
-    "dep:tokenizers",
-    "dep:hf-hub",
-    "dep:dirs",
-]

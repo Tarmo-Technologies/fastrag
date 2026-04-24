@@ -1,6 +1,6 @@
-//! End-to-end corpus round-trip test with the Qwen3 llama-cpp backend.
+//! End-to-end corpus round-trip test with the Snowflake Arctic llama-cpp backend.
 //!
-//! Requires a real `llama-server` in PATH and the Qwen3-Embedding-0.6B GGUF
+//! Requires a real `llama-server` in PATH and the Snowflake Arctic Embed L GGUF
 //! model (auto-downloaded on first run). Gated behind `FASTRAG_LLAMA_TEST=1`
 //! and `#[ignore]` so `cargo test --workspace` skips it.
 
@@ -11,18 +11,18 @@ mod support;
 use assert_cmd::Command;
 use tempfile::tempdir;
 
-/// Index two tiny documents with `--backend qwen3-q8`, then query and verify
+/// Index two tiny documents with `--backend snowflake-arctic-q8`, then query and verify
 /// the top-1 hit is semantically correct + manifest fields are right.
 #[test]
 #[ignore]
-fn qwen3_index_query_round_trip() {
+fn snowflake_arctic_index_query_round_trip() {
     if std::env::var("FASTRAG_LLAMA_TEST").as_deref() != Ok("1") {
         eprintln!("skipping: set FASTRAG_LLAMA_TEST=1 to run");
         return;
     }
     let Some(model_path) = support::llama_cpp_embed_model_path() else {
         eprintln!(
-            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/snowflake-arctic-embed-l-Q8_0.GGUF"
         );
         return;
     };
@@ -41,7 +41,7 @@ fn qwen3_index_query_round_trip() {
 
     let corpus = tempdir().unwrap();
     let cfg = tempdir().unwrap();
-    let config_path = support::write_llama_cpp_config(cfg.path(), "qwen3", &model_path);
+    let config_path = support::write_llama_cpp_config(cfg.path(), "snowflake-arctic", &model_path);
 
     // --- Index ---
     Command::cargo_bin("fastrag")

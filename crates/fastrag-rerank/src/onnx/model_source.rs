@@ -19,9 +19,9 @@ pub const TOKENIZER_FILE: &str = "tokenizer.json";
 /// Coordinates for an ONNX model on HuggingFace Hub.
 #[derive(Debug, Clone)]
 pub struct OnnxModelSource {
-    /// HuggingFace repo ID (e.g. `"Alibaba-NLP/gte-reranker-modernbert-base"`)
+    /// HuggingFace repo ID (e.g. `"tarmotech/reranker-modernbert-gooaq-bce-onnx-private"`)
     pub repo: &'static str,
-    /// Subdirectory name used in the local cache (e.g. `"gte-reranker-modernbert-base"`)
+    /// Subdirectory name used in the local cache (e.g. `"reranker-modernbert-gooaq-bce-onnx"`)
     pub dir_name: &'static str,
     /// Path to the ONNX file within the repo (e.g. `"onnx/model.onnx"` or `"model.onnx"`)
     pub model_path_in_repo: &'static str,
@@ -169,8 +169,8 @@ mod tests {
 
     fn source() -> OnnxModelSource {
         OnnxModelSource {
-            repo: "Alibaba-NLP/gte-reranker-modernbert-base",
-            dir_name: "gte-reranker-modernbert-base",
+            repo: "tarmotech/reranker-modernbert-gooaq-bce-onnx-private",
+            dir_name: "reranker-modernbert-gooaq-bce-onnx",
             model_path_in_repo: "onnx/model.onnx",
             tokenizer_path_in_repo: "tokenizer.json",
         }
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn env_dir_takes_priority() {
         let env_dir = tmpdir();
-        let model_dir = env_dir.path().join("gte-reranker-modernbert-base");
+        let model_dir = env_dir.path().join("reranker-modernbert-gooaq-bce-onnx");
         fs::create_dir_all(&model_dir).unwrap();
         fs::write(model_dir.join(MODEL_FILE), b"fake").unwrap();
         fs::write(model_dir.join(TOKENIZER_FILE), b"fake").unwrap();
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn env_dir_incomplete_falls_through() {
         let env_dir = tmpdir();
-        let model_dir = env_dir.path().join("gte-reranker-modernbert-base");
+        let model_dir = env_dir.path().join("reranker-modernbert-gooaq-bce-onnx");
         fs::create_dir_all(&model_dir).unwrap();
         // Only model.onnx, missing tokenizer.json
         fs::write(model_dir.join(MODEL_FILE), b"fake").unwrap();
@@ -226,7 +226,7 @@ mod tests {
             .path()
             .join("fastrag")
             .join("models")
-            .join("gte-reranker-modernbert-base");
+            .join("reranker-modernbert-gooaq-bce-onnx");
         fs::create_dir_all(&model_dir).unwrap();
         fs::write(model_dir.join(MODEL_FILE), b"fake").unwrap();
         fs::write(model_dir.join(TOKENIZER_FILE), b"fake").unwrap();
@@ -248,7 +248,7 @@ mod tests {
             .path()
             .join("fastrag")
             .join("models")
-            .join("gte-reranker-modernbert-base");
+            .join("reranker-modernbert-gooaq-bce-onnx");
         assert_eq!(result, expected);
 
         let calls = mock.calls.borrow();
@@ -264,7 +264,7 @@ mod tests {
             .path()
             .join("fastrag")
             .join("models")
-            .join("gte-reranker-modernbert-base");
+            .join("reranker-modernbert-gooaq-bce-onnx");
         fs::create_dir_all(&model_dir).unwrap();
         // model.onnx exists but tokenizer.json doesn't
         fs::write(model_dir.join(MODEL_FILE), b"existing").unwrap();

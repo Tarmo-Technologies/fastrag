@@ -47,6 +47,10 @@ fn index_and_query_with_openai_backend() {
             config_path.to_str().unwrap(),
             "--openai-base-url",
             &uri,
+            // The default reranker now lives in a Tarmo-owned private HF
+            // repo; the embedder round-trip tests don't exercise reranking,
+            // so skip it to avoid a 401 on model download.
+            "--no-rerank",
         ])
         .assert()
         .success();
@@ -109,6 +113,7 @@ fn query_with_mismatched_embedder_profile_fails() {
             "openai-large",
             "--openai-base-url",
             &uri,
+            "--no-rerank",
         ])
         .output()
         .unwrap();

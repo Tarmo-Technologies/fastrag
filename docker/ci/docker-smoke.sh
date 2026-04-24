@@ -45,7 +45,7 @@ JSON
 # runtime model id produced by the llama-cpp airgap profile, not a CLI preset.
 for c in cve cwe kev; do
     cat > "${BUNDLE_DIR}/corpora/${c}/manifest.json" <<'JSON'
-{"identity":{"model_id":"llama-cpp:/opt/fastrag/models/Qwen3-Embedding-0.6B-Q8_0.gguf"}}
+{"identity":{"model_id":"llama-cpp:/opt/fastrag/models/snowflake-arctic-embed-l-Q8_0.GGUF"}}
 JSON
     : > "${BUNDLE_DIR}/corpora/${c}/index.bin"
     : > "${BUNDLE_DIR}/corpora/${c}/entries.bin"

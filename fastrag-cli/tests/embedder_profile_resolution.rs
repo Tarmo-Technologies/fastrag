@@ -193,7 +193,7 @@ fn resolved_llama_cpp_profile_produces_runtime_identity_shape() {
     let profile = ResolvedEmbedderProfile {
         name: "local".into(),
         backend: EmbedBackend::LlamaCpp,
-        model: "/models/Qwen3-Embedding-0.6B-Q8_0.gguf".into(),
+        model: "/models/snowflake-arctic-embed-l-Q8_0.GGUF".into(),
         base_url: None,
         prefix: PrefixConfig {
             query: "query: ".into(),
@@ -207,7 +207,7 @@ fn resolved_llama_cpp_profile_produces_runtime_identity_shape() {
 
     assert_eq!(
         identity.model_id,
-        "llama-cpp:/models/Qwen3-Embedding-0.6B-Q8_0.gguf"
+        "llama-cpp:/models/snowflake-arctic-embed-l-Q8_0.GGUF"
     );
     assert_eq!(identity.dim, 1024);
     assert_ne!(identity.prefix_scheme_hash, 0);
@@ -239,18 +239,18 @@ fn openai_profile_rejects_unsupported_prefix_override_before_loader_io() {
 }
 
 #[test]
-fn bge_profile_rejects_unsupported_dim_override_before_loader_io() {
+fn openai_profile_rejects_unsupported_dim_override_before_loader_io() {
     let profile = ResolvedEmbedderProfile {
-        name: "bge".into(),
-        backend: EmbedBackend::Bge,
-        model: "fastrag/bge-small-en-v1.5".into(),
+        name: "openai-dim".into(),
+        backend: EmbedBackend::Openai,
+        model: "text-embedding-3-small".into(),
         base_url: None,
         prefix: PrefixConfig::default(),
         dim_override: Some(768),
     };
 
     let err = match fastrag_cli::embed_loader::load_from_profile(&profile) {
-        Ok(_) => panic!("bge dim override should fail before loader startup"),
+        Ok(_) => panic!("openai dim override should fail before loader startup"),
         Err(err) => err,
     };
 

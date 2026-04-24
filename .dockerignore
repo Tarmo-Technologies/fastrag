@@ -1,0 +1,30 @@
+# Rust build output — multi-GB, not needed in any Docker build stage.
+target/
+
+# Git metadata — Dockerfile.airgap's llama-builder clones llama.cpp fresh.
+.git/
+.worktrees/
+
+# Superpowers specs + plans — markdown only, don't belong in container builds.
+docs/superpowers/
+
+# Benchmark artefacts and corpora dumps.
+artifacts/
+eval/matrix-reports/
+fastrag-corpora/
+
+# Local env + logs.
+.direnv/
+*.log
+*.tmp
+
+# Editor / tooling caches.
+.vscode/
+.idea/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Python scratch.
+node_modules/
+__pycache__/

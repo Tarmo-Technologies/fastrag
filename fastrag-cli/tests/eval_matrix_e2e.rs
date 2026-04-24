@@ -25,7 +25,7 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
     }
     let Some(model_path) = support::llama_cpp_embed_model_path() else {
         eprintln!(
-            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/Qwen3-Embedding-0.6B-Q8_0.gguf"
+            "skipping: set FASTRAG_LLAMA_EMBED_MODEL_PATH=/path/to/snowflake-arctic-embed-l-Q8_0.GGUF"
         );
         return;
     };
@@ -35,7 +35,7 @@ fn eval_matrix_runs_four_variants_and_writes_report() {
     let questions = fixture_dir.join("questions.json");
 
     let tmp = tempdir().expect("tempdir");
-    let config_path = support::write_llama_cpp_config(tmp.path(), "qwen3", &model_path);
+    let config_path = support::write_llama_cpp_config(tmp.path(), "snowflake-arctic", &model_path);
     let ctx_corpus = tmp.path().join("ctx_corpus");
     let raw_corpus = tmp.path().join("raw_corpus");
     let report_path = tmp.path().join("matrix_report.json");

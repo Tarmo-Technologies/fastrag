@@ -43,9 +43,7 @@ language-detection = ["fastrag/language-detection"]
 mcp = ["dep:fastrag-mcp"]
 retrieval = [
     "fastrag/retrieval",
-    "fastrag/legacy-candle",
     "dep:fastrag-embed",
-    "fastrag-embed/legacy-candle",
     "fastrag-embed/http-embedders",
     "fastrag-embed/llama-cpp",
     "dep:axum",
@@ -56,19 +54,13 @@ rerank = [
     "dep:fastrag-rerank",
     "fastrag-rerank/onnx",
 ]
-rerank-llama = [
-    "rerank",
-    "fastrag-rerank/llama-cpp",
-    "fastrag-embed/llama-cpp",
-]
+# `rerank-onnx` mirrors the top-level `fastrag` feature and is what the
+# airgap Dockerfile builds with. `rerank-llama` and the legacy candle
+# ONNX embedder (`legacy-candle`) were removed in the no-Chinese-origin
+# purge.
+rerank-onnx = ["rerank", "fastrag/rerank-onnx"]
 contextual = ["retrieval", "fastrag/contextual", "dep:fastrag-context"]
-contextual-llama = [
-    "contextual",
-    "fastrag/contextual-llama",
-    "fastrag-context/llama-cpp",
-    "fastrag-embed/llama-cpp",
-]
-eval = ["dep:fastrag-eval", "dep:fastrag-embed", "fastrag-embed/legacy-candle", "fastrag-embed/test-utils"]
+eval = ["dep:fastrag-eval", "dep:fastrag-embed", "fastrag-embed/test-utils"]
 store = ["dep:fastrag-store", "fastrag/store"]
 nvd = ["fastrag/nvd"]
 hygiene = ["fastrag/hygiene"]

@@ -183,14 +183,14 @@ mod tests {
     #[test]
     fn env_dir_takes_priority() {
         let env_dir = tmpdir();
-        let file = env_dir.path().join("q3-0.6b-q8.gguf");
+        let file = env_dir.path().join("arctic-test.gguf");
         fs::write(&file, b"fake").unwrap();
 
         let mock = MockDownloader::new(PathBuf::new());
         let result = resolve_model_path(
             &ModelSource::HfHub {
-                repo: "Qwen/Qwen3-Embedding-0.6B-GGUF",
-                file: "q3-0.6b-q8.gguf",
+                repo: "tarmotech/snowflake-arctic-embed-l-gguf-private",
+                file: "arctic-test.gguf",
             },
             Some(env_dir.path()),
             None,
@@ -209,14 +209,14 @@ mod tests {
         let cache_base = tmpdir();
         let model_dir = cache_base.path().join("fastrag").join("models");
         fs::create_dir_all(&model_dir).unwrap();
-        let file = model_dir.join("q3-0.6b-q8.gguf");
+        let file = model_dir.join("arctic-test.gguf");
         fs::write(&file, b"fake").unwrap();
 
         let mock = MockDownloader::new(PathBuf::new());
         let result = resolve_model_path(
             &ModelSource::HfHub {
-                repo: "Qwen/Qwen3-Embedding-0.6B-GGUF",
-                file: "q3-0.6b-q8.gguf",
+                repo: "tarmotech/snowflake-arctic-embed-l-gguf-private",
+                file: "arctic-test.gguf",
             },
             None,
             Some(cache_base.path()),
@@ -233,13 +233,13 @@ mod tests {
     #[test]
     fn downloader_invoked_when_missing() {
         let cache_base = tmpdir();
-        let expected_path = cache_base.path().join("fastrag/models/q3-0.6b-q8.gguf");
+        let expected_path = cache_base.path().join("fastrag/models/arctic-test.gguf");
         let mock = MockDownloader::new(expected_path.clone());
 
         let result = resolve_model_path(
             &ModelSource::HfHub {
-                repo: "Qwen/Qwen3-Embedding-0.6B-GGUF",
-                file: "q3-0.6b-q8.gguf",
+                repo: "tarmotech/snowflake-arctic-embed-l-gguf-private",
+                file: "arctic-test.gguf",
             },
             None,
             Some(cache_base.path()),
@@ -252,9 +252,9 @@ mod tests {
         );
         assert_eq!(
             *mock.captured_repo.borrow(),
-            "Qwen/Qwen3-Embedding-0.6B-GGUF"
+            "tarmotech/snowflake-arctic-embed-l-gguf-private"
         );
-        assert_eq!(*mock.captured_file.borrow(), "q3-0.6b-q8.gguf");
+        assert_eq!(*mock.captured_file.borrow(), "arctic-test.gguf");
         assert_eq!(result, expected_path);
     }
 }

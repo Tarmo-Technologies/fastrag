@@ -1,18 +1,11 @@
 use std::path::PathBuf;
 
-#[cfg(feature = "mcp-search")]
-use std::sync::Arc;
-
-#[cfg(feature = "mcp-search")]
-use fastrag::BgeSmallEmbedder;
 use fastrag::ops;
 use fastrag::{ChunkingStrategy, OutputFormat, default_separators};
 use rmcp::handler::server::{router::tool::ToolRouter, wrapper::Parameters};
 use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{ServerHandler, ServiceExt, schemars, tool, tool_router};
 use serde::Deserialize;
-#[cfg(feature = "mcp-search")]
-use tokio::sync::OnceCell;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ParseFileParams {
@@ -166,16 +159,12 @@ pub struct SearchCorpusParams {
 
 pub struct FastRagMcpServer {
     _tool_router: ToolRouter<Self>,
-    #[cfg(feature = "mcp-search")]
-    embedder: OnceCell<Arc<BgeSmallEmbedder>>,
 }
 
 impl FastRagMcpServer {
     pub fn new() -> Self {
         Self {
             _tool_router: Self::tool_router(),
-            #[cfg(feature = "mcp-search")]
-            embedder: OnceCell::new(),
         }
     }
 }
@@ -194,19 +183,6 @@ fn parse_output_format(format: Option<&str>) -> OutputFormat {
         Some("html") => OutputFormat::Html,
         _ => OutputFormat::Markdown,
     }
-}
-
-#[cfg(feature = "mcp-search")]
-async fn load_embedder(
-    cell: &OnceCell<Arc<BgeSmallEmbedder>>,
-) -> Result<Arc<BgeSmallEmbedder>, String> {
-    cell.get_or_try_init(|| async {
-        BgeSmallEmbedder::from_hf_hub()
-            .map(Arc::new)
-            .map_err(|e| format!("Failed to load embedder: {e}"))
-    })
-    .await
-    .map(Arc::clone)
 }
 
 #[tool_router]
@@ -333,71 +309,17 @@ impl FastRagMcpServer {
         &self,
         Parameters(params): Parameters<SearchCorpusParams>,
     ) -> Result<String, String> {
-        #[cfg(feature = "mcp-search")]
-        {
-            let embedder = load_embedder(&self.embedder).await?;
-            let corpus_path = params.corpus_path.clone();
-            let query = params.query.clone();
-            let top_k = params.top_k.unwrap_or(5);
-            let filter_expr: Option<fastrag::filter::FilterExpr> = match params.filter {
-                Some(serde_json::Value::String(s)) => {
-                    Some(fastrag::filter::parse(&s).map_err(|e| e.to_string())?)
-                }
-                Some(v) => Some(
-                    serde_json::from_value(v).map_err(|e| format!("invalid filter JSON: {e}"))?,
-                ),
-                None => None,
-            };
-
-            let hybrid_opts = fastrag::corpus::hybrid::build_hybrid_opts_from_parts(
-                params.hybrid.unwrap_or(false),
-                params.rrf_k.unwrap_or(60),
-                params.rrf_overfetch.unwrap_or(4),
-                params.time_decay_field.clone(),
-                params.time_decay_halflife.as_deref().unwrap_or("30d"),
-                params.time_decay_weight.unwrap_or(0.3),
-                params.time_decay_dateless_prior.unwrap_or(0.5),
-                params
-                    .time_decay_blend
-                    .as_deref()
-                    .unwrap_or("multiplicative"),
-            )?;
-
-            let query_opts = fastrag::corpus::QueryOpts {
-                cwe_expand: false,
-                hybrid: hybrid_opts,
-            };
-
-            let hits = tokio::task::spawn_blocking(move || {
-                ops::query_corpus_with_filter_opts(
-                    &corpus_path,
-                    &query,
-                    top_k,
-                    embedder.as_ref(),
-                    filter_expr.as_ref(),
-                    &query_opts,
-                    &mut fastrag::corpus::LatencyBreakdown::default(),
-                    0,
-                )
-            })
-            .await
-            .map_err(|e| format!("Task failed: {e}"))?
-            .map_err(|e| {
-                format!(
-                    "Failed to query corpus {}: {e}",
-                    params.corpus_path.display()
-                )
-            })?;
-
-            return serde_json::to_string_pretty(&hits)
-                .map_err(|e| format!("Failed to serialize result: {e}"));
-        }
-
-        #[cfg(not(feature = "mcp-search"))]
-        {
-            let _ = params;
-            Err("search_corpus requires the mcp-search feature".to_string())
-        }
+        // The in-process BGE embedder was removed in the no-Chinese-origin
+        // purge; nothing currently wires a non-Chinese embedder into
+        // fastrag-mcp. The tool returns a clear "not wired" error until a
+        // replacement embedder is added and feature-gated here.
+        let _ = params;
+        Err(
+            "search_corpus is not available: the in-process embedder was removed in the \
+             no-Chinese-origin purge. Wire a non-Chinese ONNX or llama-cpp HTTP embedder \
+             into fastrag-mcp before re-enabling this tool."
+                .to_string(),
+        )
     }
 }
 

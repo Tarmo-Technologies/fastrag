@@ -20,8 +20,6 @@ pub use fastrag_csv::CsvParser;
 pub use fastrag_docx::DocxParser;
 #[cfg(feature = "email")]
 pub use fastrag_email::EmailParser;
-#[cfg(all(feature = "embedding", feature = "legacy-candle"))]
-pub use fastrag_embed::BgeSmallEmbedder;
 #[cfg(feature = "embedding")]
 pub use fastrag_embed::{DynEmbedder, DynEmbedderTrait, EmbedError as EmbedderError, Embedder};
 #[cfg(feature = "html")]

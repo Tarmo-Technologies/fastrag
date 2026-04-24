@@ -20,4 +20,9 @@ serde_json.workspace = true
 
 [features]
 default = []
-mcp-search = ["fastrag/retrieval", "fastrag/legacy-candle", "dep:fastrag-embed", "fastrag-embed/legacy-candle"]
+# `mcp-search` previously wired an in-process candle ONNX embedder
+# (BgeSmallEmbedder) into the MCP `search_corpus` tool. That dependency was
+# removed during the no-Chinese-origin purge and has no replacement yet; the
+# tool now returns "corpus search not wired". Re-enable once a non-Chinese
+# ONNX or llama-cpp HTTP embedder is wired into fastrag-mcp.
+mcp-search = ["fastrag/retrieval"]

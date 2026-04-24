@@ -6,8 +6,9 @@
 #   FASTRAG_ADMIN_TOKEN   — admin token for /admin/reload (optional).
 #   FASTRAG_TOKEN         — read token for /query, /cve, /cwe, etc. (optional).
 #
-# fastrag spawns its own llama-server subprocesses for the llama-cpp embedder
-# profile and the BGE-reranker-v2-m3 reranker, resolving GGUF files via
+# fastrag spawns its own llama-server subprocess for the llama-cpp embedder
+# profile (Snowflake Arctic Embed L GGUF) and loads the ModernBERT-gooaq-bce
+# reranker via ort in-process from ONNX. All models resolved from
 # $FASTRAG_MODEL_DIR. No network access is attempted at start-up.
 
 set -euo pipefail
@@ -61,7 +62,7 @@ default_profile = "airgap"
 
 [embedder.profiles.airgap]
 backend = "llama-cpp"
-model = "${FASTRAG_MODEL_DIR}/Qwen3-Embedding-0.6B-Q8_0.gguf"
+model = "${FASTRAG_MODEL_DIR}/snowflake-arctic-embed-l-Q8_0.GGUF"
 EOF
 
 exec fastrag serve-http \
@@ -70,6 +71,6 @@ exec fastrag serve-http \
     --bundles-dir "${BUNDLES_DIR}" \
     --config "${config_path}" \
     --embedder-profile airgap \
-    --rerank llama-cpp \
+    --rerank onnx \
     --port "${PORT}" \
     "${auth_args[@]}"

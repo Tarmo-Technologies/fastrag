@@ -12,12 +12,6 @@ pub enum EmbedError {
     #[error("missing required model file: {path}")]
     MissingModelFile { path: PathBuf },
 
-    #[error("tokenizer error: {0}")]
-    Tokenizer(String),
-
-    #[error("candle error: {0}")]
-    Candle(String),
-
     #[error("hf-hub error: {0}")]
     HfHub(String),
 
@@ -72,21 +66,7 @@ pub enum EmbedError {
     LlamaServerVersionParse(String),
 }
 
-#[cfg(feature = "legacy-candle")]
-impl From<candle_core::Error> for EmbedError {
-    fn from(value: candle_core::Error) -> Self {
-        Self::Candle(value.to_string())
-    }
-}
-
-#[cfg(feature = "legacy-candle")]
-impl From<tokenizers::Error> for EmbedError {
-    fn from(value: tokenizers::Error) -> Self {
-        Self::Tokenizer(value.to_string())
-    }
-}
-
-#[cfg(any(feature = "legacy-candle", feature = "llama-cpp"))]
+#[cfg(feature = "llama-cpp")]
 impl From<hf_hub::api::sync::ApiError> for EmbedError {
     fn from(value: hf_hub::api::sync::ApiError) -> Self {
         Self::HfHub(value.to_string())

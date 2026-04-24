@@ -1,4 +1,7 @@
-//! ONNX-based reranker using gte-reranker-modernbert-base.
+//! ONNX-based reranker using ModernBERT-base fine-tuned on GooAQ with BCE loss
+//! (`tomaarsen/reranker-ModernBERT-base-gooaq-bce`), rehosted by Tarmo at
+//! `tarmotech/reranker-modernbert-gooaq-bce-onnx-private` after a one-time
+//! `optimum-cli export onnx --task text-classification ...` run.
 //!
 //! The model is a cross-encoder: it takes (query, passage) pairs as input and
 //! outputs a single relevance logit per pair. We apply sigmoid to convert to a
@@ -19,22 +22,24 @@ use model_source::{
     HfHubOnnxDownloader, MODEL_FILE, OnnxModelSource, TOKENIZER_FILE, resolve_model_dir_default,
 };
 
-/// gte-reranker-modernbert-base (149M params, Apache 2.0).
+/// tomaarsen/reranker-ModernBERT-base-gooaq-bce (~149M params, Apache 2.0),
+/// ONNX-exported and rehosted under the Tarmo HF org.
 ///
 /// The `Mutex` around `Session` is needed because `ort::Session::run()` takes
 /// `&mut self` while the `Reranker` trait requires `&self` (for `Send + Sync`).
-pub struct GteModernBertReranker {
+pub struct ModernBertGooaqReranker {
     session: Mutex<Session>,
     tokenizer: tokenizers::Tokenizer,
 }
 
-impl GteModernBertReranker {
-    pub const MODEL_ID: &'static str = "gte-reranker-modernbert-base";
+impl ModernBertGooaqReranker {
+    pub const MODEL_ID: &'static str =
+        "tarmotech/reranker-modernbert-gooaq-bce-onnx-private";
 
     pub fn model_source() -> OnnxModelSource {
         OnnxModelSource {
-            repo: "Alibaba-NLP/gte-reranker-modernbert-base",
-            dir_name: "gte-reranker-modernbert-base",
+            repo: "tarmotech/reranker-modernbert-gooaq-bce-onnx-private",
+            dir_name: "reranker-modernbert-gooaq-bce-onnx",
             model_path_in_repo: "onnx/model.onnx",
             tokenizer_path_in_repo: "tokenizer.json",
         }
@@ -171,7 +176,7 @@ impl GteModernBertReranker {
     }
 }
 
-impl Reranker for GteModernBertReranker {
+impl Reranker for ModernBertGooaqReranker {
     fn model_id(&self) -> &'static str {
         Self::MODEL_ID
     }
@@ -224,16 +229,38 @@ mod tests {
     #[test]
     fn model_id_is_correct() {
         assert_eq!(
-            GteModernBertReranker::MODEL_ID,
-            "gte-reranker-modernbert-base"
+            ModernBertGooaqReranker::MODEL_ID,
+            "tarmotech/reranker-modernbert-gooaq-bce-onnx-private"
         );
     }
 
     #[test]
     fn model_source_coordinates() {
-        let src = GteModernBertReranker::model_source();
-        assert_eq!(src.repo, "Alibaba-NLP/gte-reranker-modernbert-base");
-        assert_eq!(src.dir_name, "gte-reranker-modernbert-base");
+        let src = ModernBertGooaqReranker::model_source();
+        assert_eq!(
+            src.repo,
+            "tarmotech/reranker-modernbert-gooaq-bce-onnx-private"
+        );
+        assert_eq!(src.dir_name, "reranker-modernbert-gooaq-bce-onnx");
+    }
+
+    #[test]
+    fn no_chinese_origin_strings() {
+        let src = ModernBertGooaqReranker::model_source();
+        let haystack = format!(
+            "{} {} {} {}",
+            ModernBertGooaqReranker::MODEL_ID,
+            src.repo,
+            src.dir_name,
+            src.model_path_in_repo
+        )
+        .to_lowercase();
+        for banned in ["qwen", "alibaba", "baai", "bge", "gte"] {
+            assert!(
+                !haystack.contains(banned),
+                "banned token '{banned}' found in reranker constants"
+            );
+        }
     }
 
     /// Full inference test — requires the ONNX model to be downloaded.
@@ -246,7 +273,8 @@ mod tests {
         }
 
         let reranker =
-            GteModernBertReranker::load_default().expect("load gte-reranker-modernbert-base");
+            ModernBertGooaqReranker::load_default()
+                .expect("load tarmotech/reranker-modernbert-gooaq-bce-onnx-private");
 
         let hits = vec![
             crate::test_utils::test_hit(1, "The capital of France is Paris", 0.5),

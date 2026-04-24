@@ -11,6 +11,7 @@ use super::{
     handle::{LlamaServerConfig, LlamaServerHandle},
 };
 use crate::error::EmbedError;
+use crate::http::build_client;
 use crate::{DynEmbedderTrait, EmbedderIdentity, PassageText, PrefixScheme, QueryText};
 
 fn intern_str(s: String) -> &'static str {
@@ -133,8 +134,13 @@ fn probe_dim(
         "model": model,
         "input": [format!("{query_prefix}a")],
     });
-    let resp = handle
-        .client()
+    // Don't reuse `handle.client()` — that client is built with a 500ms
+    // timeout tuned for /health polling. A real CPU embedding call can
+    // easily exceed that, yielding a bogus "dimension probe failed: error
+    // sending request" error even though llama-server is healthy. Use a
+    // client with the same timeouts as normal embedding traffic.
+    let probe_client = build_client()?;
+    let resp = probe_client
         .post(&url)
         .json(&body)
         .send()

@@ -1,5 +1,3 @@
-#[cfg(feature = "legacy-candle")]
-mod bge;
 mod error;
 
 #[cfg(feature = "http-embedders")]
@@ -17,8 +15,6 @@ pub mod llama_cpp;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
-#[cfg(feature = "legacy-candle")]
-pub use crate::bge::BgeSmallEmbedder;
 pub use crate::error::EmbedError;
 
 use serde::{Deserialize, Serialize};
@@ -51,7 +47,7 @@ impl PassageText {
 }
 
 /// Prefix pair used by asymmetric retrievers (E5, nomic, arctic, …). Empty
-/// strings mean "no prefix" (BGE-small, OpenAI, mock).
+/// strings mean "no prefix" (OpenAI, mock).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrefixScheme {
     pub query: &'static str,
@@ -210,7 +206,7 @@ mod core_type_tests {
     #[test]
     fn embedder_identity_equality_is_field_wise() {
         let a = EmbedderIdentity {
-            model_id: "fastrag/bge-small-en-v1.5".into(),
+            model_id: "fastrag/test-embedder".into(),
             dim: 384,
             prefix_scheme_hash: 0xDEADBEEF,
         };
