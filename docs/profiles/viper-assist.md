@@ -56,9 +56,11 @@ fastrag index ~/github/VIPER_Dashboard/artifacts/viper-assist-corpus.jsonl \
   --corpus /var/lib/fastrag/bundles/viper-assist \
   --config ./fastrag.toml \
   --embedder-profile viper-assist \
-  --preset viper-assist \
-  --ingest-format jsonl
+  --preset viper-assist
 ```
+
+`--format` is auto-detected from the `.jsonl` extension; pass `--format jsonl`
+explicitly only if your file has a different extension.
 
 The `viper-assist` preset declares the section-level chunk schema:
 

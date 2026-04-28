@@ -90,8 +90,6 @@ fn viper_assist_smoke_queries_return_relevant_pages() {
             "viper-assist",
             "--preset",
             "viper-assist",
-            "--ingest-format",
-            "jsonl",
         ])
         .assert()
         .success();
@@ -116,6 +114,7 @@ fn viper_assist_smoke_queries_return_relevant_pages() {
                 &top_k_str,
                 "--format",
                 "json",
+                "--no-rerank",
             ])
             .output()
             .unwrap();
@@ -137,9 +136,8 @@ fn viper_assist_smoke_queries_return_relevant_pages() {
         let top_ids: Vec<String> = hits
             .iter()
             .filter_map(|h| {
-                h.get("external_id")
-                    .or_else(|| h.get("id"))
-                    .or_else(|| h.get("metadata").and_then(|m| m.get("id")))
+                h.get("source_path")
+                    .or_else(|| h.get("external_id"))
                     .and_then(|v| v.as_str())
                     .map(String::from)
             })
