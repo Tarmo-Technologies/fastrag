@@ -51,6 +51,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "calls hf-hub sync API which can hang indefinitely on hosts \
+                without the tarmotech ONNX reranker cached. Run explicitly with \
+                `cargo test --ignored -- load_reranker_dispatches_to_onnx` \
+                on a host that has the model in ~/.cache/huggingface."]
     fn load_reranker_dispatches_to_onnx() {
         // Verify ONNX path is reached. If model files are present the load
         // succeeds; if absent the error must come from the ONNX model loader.

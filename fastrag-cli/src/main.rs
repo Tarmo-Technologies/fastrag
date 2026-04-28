@@ -805,11 +805,66 @@ async fn main() {
             #[cfg(feature = "rerank")]
             {
                 if !no_rerank {
-                    let reranker = fastrag_cli::rerank_loader::load_reranker(rerank)
-                        .unwrap_or_else(|e| {
+                    // Loading the ONNX reranker can hit the network (HF hub
+                    // download on first run) and can hang if the cache is
+                    // missing the model and the configured token can't fetch
+                    // it. Emit a tracing event AND an eprintln! before the
+                    // call so operators see what fastrag is doing even if
+                    // tracing isn't wired up, and bound the wait with a
+                    // timeout so a stuck download fails loudly.
+                    //
+                    // Override timeout via FASTRAG_RERANK_LOAD_TIMEOUT_SECS
+                    // (default 120s — large because cold ONNX model fetches
+                    // from HF can legitimately take ~30-60s on slow links).
+                    let timeout_secs: u64 = std::env::var("FASTRAG_RERANK_LOAD_TIMEOUT_SECS")
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(120);
+                    let model_label = match rerank {
+                        fastrag_cli::args::RerankerKindArg::Onnx => "onnx",
+                    };
+                    eprintln!(
+                        "fastrag: loading reranker ({model_label}); timeout {timeout_secs}s. \
+                         Pass --no-rerank to skip."
+                    );
+                    tracing::info!(kind = model_label, timeout_secs, "loading reranker");
+                    let load_handle = tokio::task::spawn_blocking(move || {
+                        fastrag_cli::rerank_loader::load_reranker(rerank)
+                    });
+                    let load_result = tokio::time::timeout(
+                        std::time::Duration::from_secs(timeout_secs),
+                        load_handle,
+                    )
+                    .await;
+                    let reranker = match load_result {
+                        Ok(Ok(Ok(r))) => {
+                            eprintln!("fastrag: reranker loaded");
+                            tracing::info!("reranker loaded");
+                            r
+                        }
+                        Ok(Ok(Err(e))) => {
                             eprintln!("Error loading reranker: {e}");
+                            eprintln!(
+                                "Hint: pre-cache the model with `huggingface-cli download …` \
+                                 or pass --no-rerank to disable reranking."
+                            );
                             std::process::exit(1);
-                        });
+                        }
+                        Ok(Err(join_err)) => {
+                            eprintln!("Error loading reranker (panic in load thread): {join_err}");
+                            std::process::exit(1);
+                        }
+                        Err(_) => {
+                            eprintln!("Error loading reranker: timed out after {timeout_secs}s");
+                            eprintln!(
+                                "Hint: the HF hub fetch may be stalled or the cache may be \
+                                 missing the model. Pre-cache with `huggingface-cli download` \
+                                 or pass --no-rerank to disable reranking. Override the \
+                                 timeout with FASTRAG_RERANK_LOAD_TIMEOUT_SECS=<seconds>."
+                            );
+                            std::process::exit(1);
+                        }
+                    };
                     rerank_cfg.reranker = Some(std::sync::Arc::from(reranker));
                 }
                 rerank_cfg.over_fetch = rerank_over_fetch;
