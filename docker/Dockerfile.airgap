@@ -55,6 +55,12 @@ RUN cargo build --release -p fastrag-cli \
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:trixie-slim AS llama-builder
 ARG LLAMA_CPP_REF=b8739
+# Cap parallel compile jobs to bound peak RAM during llama.cpp's C++ template
+# instantiation. The default (`-j`) uses every available core; on a 4-vCPU /
+# 16 GB GitHub-hosted runner that produces enough concurrent compiler instances
+# to push the runner OOM and lose communication with the GHA server mid-build
+# (see tarmo/vams#605). Override to a higher value on hosts with more RAM.
+ARG LLAMA_BUILD_JOBS=2
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git cmake build-essential ca-certificates curl libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -69,7 +75,7 @@ RUN git clone --filter=blob:none --branch ${LLAMA_CPP_REF} \
              -DGGML_NATIVE=OFF \
              -DCMAKE_BUILD_TYPE=Release \
              -DLLAMA_BUILD_SERVER=ON \
-    && cmake --build /src/build -j --target llama-server \
+    && cmake --build /src/build -j"${LLAMA_BUILD_JOBS}" --target llama-server \
     && strip /src/build/bin/llama-server
 
 # -----------------------------------------------------------------------------
