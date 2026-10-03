@@ -18,23 +18,30 @@ for a completely offline security lookup service. Built by
 /var/lib/fastrag/bundles/                         # mount your bundles here
 ```
 
-The container entrypoint writes a temporary `fastrag.toml` at startup and
-selects the `airgap` embedder profile. That profile resolves the bundled
-Snowflake Arctic Embed L GGUF through the llama-cpp backend, and `--rerank
-onnx` loads the ModernBERT-gooaq-bce reranker directly via `ort`. Both
-models are Tarmo-owned HuggingFace re-hosts; see the no-Chinese-origin
-compliance note in `feedback_no_chinese_models.md`.
+With no command, the container entrypoint writes a temporary `fastrag.toml`
+at startup and selects the `airgap` embedder profile. That profile resolves the
+bundled Snowflake Arctic Embed L GGUF through the llama-cpp backend, and
+`--rerank onnx` loads the ModernBERT-gooaq-bce reranker directly via `ort`.
+Both models are Tarmo-owned HuggingFace re-hosts; see the no-Chinese-origin
+compliance note in `feedback_no_chinese_models.md`. The build fetches each
+model at a pinned commit and fails if a file's sha256 differs from its pin
+(`EMBED_*` and `RERANK_*` build args in `Dockerfile.airgap`).
 
 ## Environment variables
 
 | Variable                | Required | Purpose                                                 |
 |-------------------------|----------|---------------------------------------------------------|
-| `BUNDLE_NAME`           | yes      | Directory under `/var/lib/fastrag/bundles/` to load.    |
+| `BUNDLE_NAME`           | yes*     | Directory under `/var/lib/fastrag/bundles/` to load.    |
 | `FASTRAG_TOKEN`         | no       | Read token for `/query`, `/cve`, `/cwe`, `/kev`, etc.   |
 | `FASTRAG_ADMIN_TOKEN`   | no       | Admin token for `/admin/reload`. Must differ from read. |
 | `BUNDLES_DIR`           | no       | Override bundles root (default `/var/lib/fastrag/bundles`). |
 | `PORT`                  | no       | Listen port inside the container (default `8080`).      |
 | `FASTRAG_MODEL_DIR`     | preset   | Points at the pre-staged GGUFs used by the airgap profile. |
+
+\* Only the default command reads `BUNDLE_NAME`, `BUNDLES_DIR` and `PORT`; a
+command you pass names its own bundle and port (see below). `fastrag
+serve-http` reads the two tokens from the environment itself, and
+`FASTRAG_HOST` defaults to `0.0.0.0`, with or without a command.
 
 ## Run
 
@@ -46,6 +53,22 @@ docker run --rm -p 8080:8080 \
     -e FASTRAG_ADMIN_TOKEN=<admin-token> \
     fastrag:<tag>
 ```
+
+### Your own command
+
+Arguments after the image name, or a compose `command:`, replace the default
+command. A fastrag subcommand or flag runs under `fastrag`, and an executable
+on `PATH` runs as given; the entrypoint `exec`s it, so tini's signals reach it.
+
+```yaml
+command: [serve-http, --config, /etc/fastrag/fastrag.toml, --embedder-profile, vams,
+          --bundle-path, /var/lib/fastrag/bundles/vams-lookup-v1,
+          --corpus, vams-findings=/var/lib/fastrag/corpora/vams-findings, --port, "8080"]
+```
+
+The image has no network at start-up and runs no Ollama, so the embedder
+profile you select must use the bundled GGUF: `backend = "llama-cpp"`,
+`model = "/opt/fastrag/models/snowflake-arctic-embed-l-Q8_0.GGUF"`.
 
 ## Lookup endpoints
 

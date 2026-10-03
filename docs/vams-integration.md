@@ -400,8 +400,12 @@ shown above.
 If you use the separate airgap image or wrapper entrypoint described in
 [`docs/airgap-install.md`](./airgap-install.md), that path also accepts
 container-scoped wrapper variables such as `BUNDLE_NAME`, `BUNDLES_DIR`, and
-`PORT`. Those belong to the wrapper-script deployment model, not the explicit
-`command:` compose example above.
+`PORT`. Those apply only when the container is started without a command. The
+airgap image runs an explicit `command:` such as the compose example above as
+given, so `vams-findings` is registered there too. That image has no Ollama,
+so the profile the command selects must be a llama-cpp profile on the bundled
+GGUF, `/opt/fastrag/models/snowflake-arctic-embed-l-Q8_0.GGUF`
+([`docker/README.md`](../docker/README.md#your-own-command)).
 
 ## Verification checklist
 

@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # FastRAG airgap entrypoint.
 #
-# Requires:
+# With arguments (compose `command:`, `docker run IMAGE ...`) the caller's
+# command runs as given: a fastrag subcommand or flag (`serve-http ...`,
+# `--version`) runs under fastrag, an executable on PATH (`fastrag ...`,
+# `bash`) runs as is. The caller's argv names its own corpora, bundle, config
+# and port, so BUNDLE_NAME, BUNDLES_DIR and PORT do not apply to it; fastrag
+# serve-http reads FASTRAG_TOKEN and FASTRAG_ADMIN_TOKEN from the environment
+# itself.
+#
+# With no arguments it serves the bundle's corpora. Requires:
 #   BUNDLE_NAME           — directory under /var/lib/fastrag/bundles/ to load.
 #   FASTRAG_ADMIN_TOKEN   — admin token for /admin/reload (optional).
 #   FASTRAG_TOKEN         — read token for /query, /cve, /cwe, etc. (optional).
@@ -13,14 +21,21 @@
 
 set -euo pipefail
 
-BUNDLE_NAME="${BUNDLE_NAME:-}"
-BUNDLES_DIR="${BUNDLES_DIR:-/var/lib/fastrag/bundles}"
-PORT="${PORT:-8080}"
-
 # fastrag serve-http binds to 127.0.0.1 by default; inside a container the
 # docker port mapping can only reach it via the container interface, so
 # listen on all interfaces here.
 export FASTRAG_HOST="${FASTRAG_HOST:-0.0.0.0}"
+
+if [[ $# -gt 0 ]]; then
+    if [[ "$1" == -* ]] || ! type -P "$1" >/dev/null; then
+        set -- fastrag "$@"
+    fi
+    exec "$@"
+fi
+
+BUNDLE_NAME="${BUNDLE_NAME:-}"
+BUNDLES_DIR="${BUNDLES_DIR:-/var/lib/fastrag/bundles}"
+PORT="${PORT:-8080}"
 
 if [[ -z "${BUNDLE_NAME}" ]]; then
     echo "[entrypoint] BUNDLE_NAME env var required" >&2

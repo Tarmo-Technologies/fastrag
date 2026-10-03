@@ -11,7 +11,8 @@
 #                      embedder (GGUF via llama-server --embedding).
 #   3. model-fetcher — downloads the Snowflake Arctic GGUF and the ONNX
 #                      reranker (model.onnx + tokenizer.json) from Tarmo-owned
-#                      private HuggingFace repos using HF_TOKEN (BuildKit secret).
+#                      private HuggingFace repos using HF_TOKEN (BuildKit secret),
+#                      each at a pinned commit and checked against its sha256.
 #   4. runtime       — debian:trixie-slim with fastrag, llama-server, tini, and
 #                      pre-staged models under $FASTRAG_MODEL_DIR. No network
 #                      access required at start-up.
@@ -86,11 +87,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Each repo is fetched at a pinned commit and each file is checked against its
+# sha256 (the LFS oid from /api/models/<repo>/tree/<rev>; tokenizer.json is
+# not LFS, so its digest is of the file at that commit). To move a pin, take
+# the new commit's `sha` from /api/models/<repo>/revision/main and every
+# file's digest at that commit, together.
 ARG EMBED_REPO=tarmotech/snowflake-arctic-embed-l-gguf-private
+ARG EMBED_REVISION=9819e129392dbef59ea42a455069018279c40a28
 ARG EMBED_FILE=snowflake-arctic-embed-l-Q8_0.GGUF
+ARG EMBED_SHA256=4eade183f5dd6f2e218880a5bc4cbfc1fc93d1e35f7aa9057bc8b9d8f94d817e
 ARG RERANK_REPO=tarmotech/reranker-modernbert-gooaq-bce-onnx-private
+ARG RERANK_REVISION=51217c3da0b96f9363e0ddc90b088370362235e2
 ARG RERANK_ONNX_PATH=onnx/model.onnx
+ARG RERANK_ONNX_SHA256=7bfca8de9f3ec1d9dd63263a28c44dfe7940500d7d152f88c1eb09c83f3cff56
 ARG RERANK_TOKENIZER_PATH=tokenizer.json
+ARG RERANK_TOKENIZER_SHA256=bb637767e8dfb8044597df6c58243bff2e592ae9e3b310c0bbdb8591f6ac543d
 # Directory name fastrag's ONNX reranker resolver (`OnnxModelSource::dir_name`)
 # expects. Keep in sync with crates/fastrag-rerank/src/onnx/mod.rs.
 ARG RERANK_DIR_NAME=reranker-modernbert-gooaq-bce-onnx
@@ -102,18 +113,21 @@ RUN --mount=type=secret,id=hf_token,required=true \
     HF_TOKEN="$(cat /run/secrets/hf_token)"; \
     auth="Authorization: Bearer ${HF_TOKEN}"; \
     base="https://huggingface.co"; \
-    echo "[model-fetcher] downloading ${EMBED_REPO}/${EMBED_FILE}"; \
+    echo "[model-fetcher] downloading ${EMBED_REPO}@${EMBED_REVISION}/${EMBED_FILE}"; \
     curl -fL --retry 5 --retry-delay 5 -H "$auth" \
-        "${base}/${EMBED_REPO}/resolve/main/${EMBED_FILE}" \
+        "${base}/${EMBED_REPO}/resolve/${EMBED_REVISION}/${EMBED_FILE}" \
         -o "/models/${EMBED_FILE}"; \
-    echo "[model-fetcher] downloading ${RERANK_REPO}/${RERANK_ONNX_PATH}"; \
+    echo "${EMBED_SHA256}  /models/${EMBED_FILE}" | sha256sum -c -; \
+    echo "[model-fetcher] downloading ${RERANK_REPO}@${RERANK_REVISION}/${RERANK_ONNX_PATH}"; \
     curl -fL --retry 5 --retry-delay 5 -H "$auth" \
-        "${base}/${RERANK_REPO}/resolve/main/${RERANK_ONNX_PATH}" \
+        "${base}/${RERANK_REPO}/resolve/${RERANK_REVISION}/${RERANK_ONNX_PATH}" \
         -o "/models/${RERANK_DIR_NAME}/model.onnx"; \
-    echo "[model-fetcher] downloading ${RERANK_REPO}/${RERANK_TOKENIZER_PATH}"; \
+    echo "${RERANK_ONNX_SHA256}  /models/${RERANK_DIR_NAME}/model.onnx" | sha256sum -c -; \
+    echo "[model-fetcher] downloading ${RERANK_REPO}@${RERANK_REVISION}/${RERANK_TOKENIZER_PATH}"; \
     curl -fL --retry 5 --retry-delay 5 -H "$auth" \
-        "${base}/${RERANK_REPO}/resolve/main/${RERANK_TOKENIZER_PATH}" \
+        "${base}/${RERANK_REPO}/resolve/${RERANK_REVISION}/${RERANK_TOKENIZER_PATH}" \
         -o "/models/${RERANK_DIR_NAME}/tokenizer.json"; \
+    echo "${RERANK_TOKENIZER_SHA256}  /models/${RERANK_DIR_NAME}/tokenizer.json" | sha256sum -c -; \
     echo "[model-fetcher] sanity checks"; \
     test -s "/models/${EMBED_FILE}"; \
     test -s "/models/${RERANK_DIR_NAME}/model.onnx"; \
