@@ -13,7 +13,7 @@ FastRAG only indexes files from disk. Tarmo tools (VAMS, scribe, storm) produce 
 2. **HNSW stores vectors only** — `{id, vector}`. All text, metadata, and `_source` live in Tantivy. Query path: HNSW returns IDs → Tantivy lookup.
 3. **File-based external IDs** — content-addressed: blake3 hash of `(source_path, chunk_index)`. JSONL uses `--id-field`.
 4. **Dynamic schema per corpus** — core fields always present, user fields declared at ingest via `--metadata-fields`/`--metadata-types`. Persisted in `schema.json`. New fields can be added on subsequent ingests; type conflicts error out.
-5. **`_source` per chunk, deduped at query time** — every chunk stores the full original JSON record. Results grouped by `_external_id` to deduplicate.
+5. **`_source` per chunk, deduped at query time** — every chunk stores the full original JSON record. Results grouped by `_external_id` to handle duplicates.
 6. **No backward compatibility** — existing corpora must be re-indexed. `entries.bin` is deleted. No migration path.
 7. **Tombstone-based HNSW deletion** — delete marks slots as dead; explicit `fastrag compact` rebuilds the graph.
 
@@ -220,7 +220,7 @@ pub struct ChunkHit {
 }
 ```
 
-Results deduplicated by `_external_id` — multiple chunks from the same record grouped into one `SearchHit`.
+Results processed for duplicates by `_external_id` — multiple chunks from the same record grouped into one `SearchHit`.
 
 ## CLI Surface
 
@@ -266,7 +266,7 @@ fastrag corpus-info --corpus ./corpus
 ## Verification
 
 1. **Unit tests**: `DynamicSchema` merge/compatibility, `TypedValue` serde, JSONL line parsing, tombstone set operations
-2. **Integration test**: Ingest JSONL fixture → query → verify `_source` round-trip, typed filter, dedup by `_external_id`
+2. **Integration test**: Ingest JSONL fixture → query → verify `_source` round-trip, typed filter, duplicate handling by `_external_id`
 3. **Upsert test**: Ingest → modify record → re-ingest → verify old chunks gone, new chunks present
 4. **Delete test**: Ingest → delete by ID → query returns no results → compact → HNSW rebuilt without deleted vectors
 5. **File-based ingest test**: Existing file ingest through new `Store` path → query → verify results

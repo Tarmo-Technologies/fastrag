@@ -4,7 +4,7 @@ How to wire [fastrag](../README.md) into VAMS as a retrieval + reference-lookup 
 
 ## TL;DR
 
-- fastrag is a standalone HTTP service VAMS calls for **finding dedup** (`POST /similar`) and **CWE/KEV reference lookups** (`GET /cwe/{id}`, `GET /cwe/relation`).
+- fastrag is a standalone HTTP service VAMS calls for **finding duplicate handling** (`POST /similar`) and **CWE/KEV reference lookups** (`GET /cwe/{id}`, `GET /cwe/relation`).
 - fastrag is **not** an LLM proxy. VAMS vetting keeps calling llama-server directly via `TARMO_VETTING_TIER*` — unchanged.
 - fastrag retrieval now loads from a named embedder profile in `fastrag.toml`; the VAMS example below mounts `/etc/fastrag/fastrag.toml` and starts `serve-http --config ... --embedder-profile vams`.
 - VAMS application code does not need a FastRAG protocol change for this migration. The HTTP endpoints and Python client usage stay the same; only the FastRAG-owned deployment and indexing commands move to profile-based config.
@@ -17,7 +17,7 @@ fastrag exposes a `vams-lookup-v1` bundle of pre-built reference corpora (`cwe`,
 
 | Use case | Endpoint(s) | Status |
 |---|---|---|
-| Finding dedup at ingest | `POST /similar` (+ MinHash verifier) | Primary |
+| Finding duplicate handling at ingest | `POST /similar` (+ MinHash verifier) | Primary |
 | CWE / KEV reference lookups | `GET /cwe/{id}`, `GET /cwe/relation` | Primary |
 | Cross-engagement pattern matching | `POST /similar` with `corpora: [...]` + `X-Fastrag-Tenant` | Future (VAMS is single-tenant today) |
 
@@ -25,7 +25,7 @@ What fastrag does **not** do:
 
 - **No LLM inference.** Vetting LLM calls stay on `TARMO_VETTING_TIER1_ENDPOINT` / `TARMO_VETTING_TIER2_ENDPOINT` (see `vams/core/vetting_service.py`). fastrag's retrieval embedder comes from the configured profile in `/etc/fastrag/fastrag.toml`; VAMS still only talks to fastrag's HTTP endpoints.
 - **No session state or secrets.** Bundles contain public CVE/CWE/KEV data; the findings corpus must never contain credentials, session tokens, or customer secrets. Scrub before `POST /similar`.
-- **No bundle signature verification** (yet). VAMS verifies bundles via `tarmo_vuln_core.signing.ReportSigner` before calling `POST /admin/reload`. Rust-side verification is deferred to fastrag issue #66.
+- **No bundle signature verification** (yet). VAMS verifies bundles via `vams.vulnerability.signing.ReportSigner` before calling `POST /admin/reload`. Rust-side verification is deferred to fastrag issue #66.
 
 ## What changes in VAMS
 
@@ -219,11 +219,11 @@ client = FastRAGClient(
 
 An `AsyncFastRAGClient` with the same surface is available for async call sites.
 
-## Use case 1 — Finding dedup at ingest
+## Use case 1 — Finding duplicate handling at ingest
 
 **Goal:** collapse near-duplicate findings across scanners (Semgrep / Bandit / Trivy / ZAP / …) before they land in SQLite.
 
-**Call site to hook:** `vams/vams/core/ingest_service.py:27–54`, inside `ingest_file()`. The existing flow already fingerprint-filters against the DB (line 87) and runs the Rust dedup engine (`tarmo_vuln_core.dedup.deduplicate_findings`). The fastrag hook sits *after* those and catches semantic near-dups the fingerprint/dedup passes miss (same bug described in different words across tools).
+**Call site to hook:** `ingest_file()` in `vams/vams/core/ingest_service.py`. VAMS checks stored fingerprints and runs its own matching service before the FastRAG similarity hook. The hook catches findings describing the same weakness in different words across tools.
 
 **Corpus bootstrap (one-time).** Export existing findings to JSONL, then ingest:
 
@@ -275,7 +275,7 @@ for hit in is_semantic_duplicate(client, finding):
 
 Tune on a labelled sample before promoting these thresholds. Cosine thresholds drift with embedder version; re-tune if the bundle's embedder changes.
 
-**After insert:** append the new finding to the corpus via `client.ingest([{...}], id_field="finding_id", text_fields=["title", "description", "location"], corpus="vams-findings")` so future dedup catches it.
+**After insert:** append the new finding to the corpus via `client.ingest([{...}], id_field="finding_id", text_fields=["title", "description", "location"], corpus="vams-findings")` so future duplicate handling catches it.
 
 ## Use case 2 — CWE / KEV reference lookups
 
@@ -348,7 +348,7 @@ embedder config read-only at `/etc/fastrag/fastrag.toml`.
 ### Hot reload on new NVD/KEV snapshot
 
 1. Copy the new bundle directory alongside the current one under `/var/lib/fastrag/bundles/`.
-2. Verify the bundle's signature using `tarmo_vuln_core.signing.ReportSigner` before issuing the reload.
+2. Verify the bundle's signature using `vams.vulnerability.signing.ReportSigner` before issuing the reload.
 3. Trigger reload:
    ```python
    result = client.reload_bundle("fastrag-20260501")  # directory name, not absolute path
@@ -450,7 +450,7 @@ These belong elsewhere, not in fastrag:
 - Design spec: [`docs/superpowers/specs/2026-04-16-fastrag-for-vams-design.md`](./superpowers/specs/2026-04-16-fastrag-for-vams-design.md)
 - Airgap operator guide: [`docs/airgap-install.md`](./airgap-install.md)
 - HTTP surface + metrics + auth: [`README.md` § Deployment](../README.md#deployment)
-- Dedup pipeline recipe: [`README.md` § Similarity Search](../README.md#similarity-search)
+- Duplicate handling pipeline recipe: [`README.md` § Similarity Search](../README.md#similarity-search)
 - Python client source: `clients/python/src/fastrag_client/`
 - VAMS ingest call site: `vams/vams/core/ingest_service.py` (`ingest_file`)
 - VAMS vetting-context call site: `vams/vams/core/context_builder/__init__.py` (`build_vetting_context`)

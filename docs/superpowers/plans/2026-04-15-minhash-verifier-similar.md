@@ -850,7 +850,7 @@ Refs #56"
 
 ---
 
-## Task 5: Synthetic dedup gate
+## Task 5: Synthetic duplicate handling gate
 
 **Files:**
 - Create: `crates/fastrag/tests/dedup_synthetic_gate.rs`
@@ -1192,7 +1192,7 @@ Response: hits[].verify_score (present when verify ran),
           stats.dropped_by_verifier (present when > 0)
 ```
 
-Add a short "Dedup recipe for VAMS" note: use `verify.threshold=0.7` on top of `threshold=0.85` for strict near-dup collapsing.
+Add a short "Duplicate handling recipe for VAMS" note: use `verify.threshold=0.7` on top of `threshold=0.85` for strict near-dup collapsing.
 
 - [ ] **Step 3: Update CLAUDE.md build commands**
 

@@ -160,7 +160,7 @@ Lessons from shipping the shim, each one a concrete pre-processing step fastrag 
 
 1. **Reject `vulnStatus: Rejected` and `Disputed` CVEs.** NVD ships ~760 rejected CVEs per year with short boilerplate (`** REJECT `, `Rejected reason: ...`). They dominate top-k for any short query and poison semantic retrieval. Filter at ingest. This alone fixed a significant fraction of the shim's early retrieval failures.
 2. **Strip NVD boilerplate from embedding text.** `** DISPUTED **`, CPE 2.3 URIs, reference URLs, legal notices — keep in metadata, exclude from the embedded string.
-3. **Cross-source deduplication.** NVD, GHSA, OSV, and KEV overlap heavily. Dedup by CVE-ID, merge descriptions (GHSA prose is consistently better than NVD's), keep all source provenance as metadata. A single canonical chunk per CVE beats four noisy ones.
+3. **Cross-source duplicate handling.** NVD, GHSA, OSV, and KEV overlap heavily. Duplicate handling by CVE-ID, merge descriptions (GHSA prose is consistently better than NVD's), keep all source provenance as metadata. A single canonical chunk per CVE beats four noisy ones.
 4. **Temporal weighting.** Boost KEV and post-2020 CVEs in the reranker score or as a Tantivy boost. Old CVEs dominate by volume but rarely match modern intent.
 5. **Normalize vendor and product via CPE 2.3** before indexing — free facets in Tantivy, cheap disambiguation at query time.
 6. **Language filtering.** NVD has a fraction of non-English descriptions. Silently falling back to "first description" got the shim non-English text in a few chunks. Detect language at ingest, log the count, and choose explicit behavior (skip, translate, or flag).

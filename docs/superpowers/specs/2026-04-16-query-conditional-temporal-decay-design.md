@@ -22,7 +22,7 @@ This v1 takes the conservative subset: ship a per-query API, a high-precision ab
 
 ## Goals
 
-- Per-query `TemporalPolicy` API surface, consumable by VAMS (scan-date-aware correlation) and pentest tooling (explicit freshness requests for PoC hunting).
+- Per-query `TemporalPolicy` API surface, consumable by VAMS (scan-date-aware matching) and pentest tooling (explicit freshness requests for PoC hunting).
 - Abstaining regex detector: high-precision recency recognition, default to `Off` when no positive signal. No CVE-year heuristics. No historical class in v1.
 - Late-stage decay: apply temporal factor to the final post-rerank score, not during RRF fusion. Correct old docs survive to rerank regardless of decay.
 - Conservative defaults that do not regress any bucket when detector abstains.

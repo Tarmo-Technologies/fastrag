@@ -1,12 +1,12 @@
 # MinHash Verifier for POST /similar
 
-> **Issue:** crook3dfingers/fastrag#56 — Phase 3 follow-up: MinHash/SimHash verifier for /similar (opt-in dedup)
+> **Issue:** crook3dfingers/fastrag#56 — Phase 3 follow-up: MinHash/SimHash verifier for /similar (opt-in duplicate handling)
 > **Parent issue:** crook3dfingers/fastrag#52 — Similarity threshold endpoint (ANN-only)
 > **Date:** 2026-04-15
 
 ## Problem
 
-`POST /similar` (shipped in #52) filters ANN candidates by cosine threshold. For cross-engagement pattern matching and loose dedup, cosine-only is adequate. For strict dedup — the VAMS use case of collapsing duplicate findings across scanner outputs — cosine thresholds drift with embedding model changes, text length, and distribution tails, producing false positives near the threshold boundary.
+`POST /similar` (shipped in #52) filters ANN candidates by cosine threshold. For cross-engagement pattern matching and loose duplicate handling, cosine-only is adequate. For strict duplicate handling — the VAMS use case of collapsing duplicate findings across scanner outputs — cosine thresholds drift with embedding model changes, text length, and distribution tails, producing false positives near the threshold boundary.
 
 A cheap verification stage on top of the ANN candidates fixes the boundary noise without changing the ANN stage's semantics.
 
@@ -22,7 +22,7 @@ A cheap verification stage on top of the ANN candidates fixes the boundary noise
 - SimHash (the `method` enum leaves room for a future addition).
 - Pre-computed signatures at ingest (revisit only if benchmark shows a latency problem).
 - Verifier on `/query` (this issue is `/similar`-scoped).
-- MCP or CLI surface for dedup (HTTP only — VAMS is a server-to-server caller).
+- MCP or CLI surface for duplicate handling (HTTP only — VAMS is a server-to-server caller).
 
 ## Decisions
 
@@ -162,8 +162,8 @@ Option B/C from brainstorming; documented here so the seam is known, not built n
 
 - SimHash (future `method: "simhash"`).
 - Pre-computed signatures (per escape hatch above).
-- CLI command for dedup.
-- MCP tool for dedup.
+- CLI command for duplicate handling.
+- MCP tool for duplicate handling.
 - Verifier on `/query`.
 - Adaptive overfetch that grows until the verifier produces `max_results` hits.
 

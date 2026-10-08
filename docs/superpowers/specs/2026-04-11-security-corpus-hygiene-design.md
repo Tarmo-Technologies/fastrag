@@ -16,7 +16,7 @@ Phase 2 Steps 1–6 are all shipped and green on `main`:
 **Scope decision (user-approved).** The full roadmap bullet list assumes structured NVD/GHSA/OSV/KEV input that fastrag does not currently parse. Fastrag today only parses documents (PDF, markdown, DOCX, etc.) through the `Parser` trait. CVE/CWE regex extraction happens at *query* time, not ingest. The user picked decomposition **Option A — "NVD parser + generic filters"**:
 
 - **In Step 7:** a new `fastrag-nvd` parser crate that reads NVD 2.0 JSON feeds and emits `Document` objects with structured metadata, plus a generic hygiene filter chain enabled by `--security-profile`.
-- **Deferred to Step 8 or later:** GHSA parser, OSV parser, KEV live-catalog join, cross-source dedup with GHSA prose merge, full CPE 2.3 structural normalization beyond vendor/product strings, Tantivy schema migration for a numeric year field.
+- **Deferred to Step 8 or later:** GHSA parser, OSV parser, KEV live-catalog join, cross-source duplicate handling with GHSA prose merge, full CPE 2.3 structural normalization beyond vendor/product strings, Tantivy schema migration for a numeric year field.
 
 This keeps the first PR focused and ships a working NVD-hygiene profile that measurably improves gold-set hit@5 via the Step 6 eval harness.
 
@@ -169,7 +169,7 @@ Each landing is a separate commit on `main`. TDD red-green per `CLAUDE.md`. No w
 ### Non-goals (explicit, to prevent scope creep)
 
 - GHSA, OSV, KEV-as-primary-source parsers. (Step 8.)
-- Cross-source dedup with GHSA prose merge. (Step 8.)
+- Cross-source duplicate handling with GHSA prose merge. (Step 8.)
 - Full CPE 2.3 structural normalization beyond vendor/product string extraction.
 - Tantivy schema migration for a numeric `published_year` or `cvss_score` field. Step 7 stores everything in `metadata_json` strings.
 - Live KEV catalog fetch. The user supplies a path to a JSON file; fastrag does not download.
@@ -189,7 +189,7 @@ Each landing is a separate commit on `main`. TDD red-green per `CLAUDE.md`. No w
 
 - **Read before writing**: `crates/fastrag/src/corpus/mod.rs:196-420` (ingest pipeline), `crates/fastrag-core/src/chunking.rs:6-19` (Chunk struct), `crates/fastrag-core/src/parser.rs` (Parser trait), `crates/fastrag/src/registry.rs:11-52` (registry), `crates/fastrag-tantivy/src/schema.rs:26-69` (Tantivy schema), `crates/fastrag-eval/src/datasets/nvd.rs` (existing NVD serde to lift).
 - **Create**: everything under `crates/fastrag-nvd/` and `crates/fastrag/src/hygiene/`.
-- **Modify**: `crates/fastrag/src/corpus/mod.rs` (hygiene insertion point, multi-doc loop), `crates/fastrag/src/registry.rs` (register `fastrag-nvd`), `crates/fastrag/Cargo.toml` (feature flags), `fastrag-cli/src/args.rs` + `fastrag-cli/src/main.rs` (CLI flag), `crates/fastrag-eval/src/datasets/nvd.rs` (deduplicate serde types), `CLAUDE.md`, `README.md`, `docs/superpowers/roadmap-2026-04-phase2-rewrite.md` (mark Step 7 shipped).
+- **Modify**: `crates/fastrag/src/corpus/mod.rs` (hygiene insertion point, multi-doc loop), `crates/fastrag/src/registry.rs` (register `fastrag-nvd`), `crates/fastrag/Cargo.toml` (feature flags), `fastrag-cli/src/args.rs` + `fastrag-cli/src/main.rs` (CLI flag), `crates/fastrag-eval/src/datasets/nvd.rs` (handle duplicates serde types), `CLAUDE.md`, `README.md`, `docs/superpowers/roadmap-2026-04-phase2-rewrite.md` (mark Step 7 shipped).
 
 ## Verification
 

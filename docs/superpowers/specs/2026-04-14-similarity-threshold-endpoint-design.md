@@ -6,7 +6,7 @@
 
 ## Problem
 
-VAMS dedup and cross-engagement pattern matching need a "find all documents above X similarity" primitive rather than "return top-K." The existing `/query` endpoint returns a fixed K regardless of semantic distance, which breaks dedup (misses duplicates beyond K, or includes unrelated rows when K is large and the corpus is small).
+VAMS duplicate handling and cross-engagement pattern matching need a "find all documents above X similarity" primitive rather than "return top-K." The existing `/query` endpoint returns a fixed K regardless of semantic distance, which breaks duplicate handling (misses duplicates beyond K, or includes unrelated rows when K is large and the corpus is small).
 
 ## Goals
 

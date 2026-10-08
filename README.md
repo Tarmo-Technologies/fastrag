@@ -458,7 +458,7 @@ The HTTP `/query` endpoint accepts every flag as a snake-cased query-string para
 
 ### Similarity Search
 
-`POST /similar` returns documents whose raw cosine similarity to a query text exceeds a threshold, rather than a fixed top-K. Use it for dedup and cross-corpus near-duplicate detection.
+`POST /similar` returns documents whose raw cosine similarity to a query text exceeds a threshold, rather than a fixed top-K. Use it for duplicate handling and cross-corpus near-duplicate detection.
 
 **Request:**
 
@@ -509,7 +509,7 @@ When `verify` is set, each surviving hit carries `verify_score` (MinHash Jaccard
 
 `truncated: true` means the adaptive overfetch hit the server cap before exhausting the above-threshold tail. Raise `--similar-overfetch-cap` on `serve-http` when this occurs on large corpora.
 
-**Dedup pipeline recipe.** Vulnerability management systems (VAMS and similar) can wire `/similar` into the finding-ingest path to collapse near-duplicates without running a top-K query plus post-filter.
+**Duplicate handling pipeline recipe.** Vulnerability management systems (VAMS and similar) can wire `/similar` into the finding-ingest path to collapse near-duplicates without running a top-K query plus post-filter.
 
 1. **Ingest existing findings as a dense corpus.** The record's embeddable text is typically a concatenation of `title`, `description`, and canonical location (file path, endpoint, function). Metadata carries the identifiers you want returned (finding id, source tool, severity, CWE, detection date).
 
@@ -561,7 +561,7 @@ When `verify` is set, each surviving hit carries `verify_score` (MinHash Jaccard
 
 Tune thresholds on a labelled sample of near-duplicates before promoting a policy — cosine distributions vary by corpus size, chunk length, and embedder.
 
-**Strict dedup with the MinHash verifier.** Cosine thresholds drift with embedding model changes and text-length distribution, causing false positives near the boundary. For strict dedup — collapsing scanner outputs where one false merge costs a missed finding — add a `verify` block:
+**Strict duplicate handling with the MinHash verifier.** Cosine thresholds drift with embedding model changes and text-length distribution, causing false positives near the boundary. For strict duplicate handling — collapsing scanner outputs where one false merge costs a missed finding — add a `verify` block:
 
 ```json
 POST /similar
@@ -777,7 +777,7 @@ The `serve-http` subcommand exposes a small operational surface for production u
 | `GET /health` | Liveness probe — returns `{"status":"ok"}` |
 | `GET /query?q=...&top_k=N` | Semantic corpus search |
 | `POST /batch-query` | Batched queries in one request; supports cross-corpus federation |
-| `POST /similar` | Raw-cosine threshold filtering for dedup; optional MinHash verifier for strict near-duplicate confirmation |
+| `POST /similar` | Raw-cosine threshold filtering for duplicate handling; optional MinHash verifier for strict near-duplicate confirmation |
 | `POST /ingest` | Append JSONL records to a corpus |
 | `DELETE /ingest/:id` | Remove a record by its external id |
 | `GET /corpora` | List registered corpora (tenant-scoped when configured) |
