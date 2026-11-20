@@ -23,24 +23,28 @@
 FROM public.ecr.aws/docker/library/rust:1.89-trixie AS rust-builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        pkg-config libssl-dev ca-certificates build-essential cmake git \
+        pkg-config libssl-dev ca-certificates build-essential cmake git unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # ort v2 was reconfigured to `load-dynamic` (workspace Cargo.toml) because
-# pyke's download CDN has been returning HTTP 504 reliably. Fetch the
-# Microsoft-published prebuilt ONNX Runtime tarball from GitHub and extract
-# libonnxruntime.so.1 into /out/lib/ so the runtime image can dlopen it via
-# LD_LIBRARY_PATH.
+# pyke's download CDN has been returning HTTP 504 reliably. The runtime image
+# dlopens libonnxruntime.so.1 via LD_LIBRARY_PATH. Microsoft's GitHub release
+# tarballs are gone (github.com/microsoft/onnxruntime answers 404 since
+# 2026-11), so take the same library from the official PyPI wheel, fetched at
+# a pinned URL and checked against its sha256. The wheel's
+# onnxruntime/capi/libonnxruntime.so.<ver> exports the versioned C API
+# (OrtGetApiBase@@VERS_<ver>) that ort loads.
 ARG ORT_VERSION=1.24.2
+ARG ORT_WHEEL_URL=https://files.pythonhosted.org/packages/35/af/ad86cfbfd65d5a86204b3a30893e92c0cf3f1a56280efc5a12e69d81f52d/onnxruntime-1.24.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+ARG ORT_WHEEL_SHA256=09aa6f8d766b4afc3cfba68dd10be39586b49f9462fbd1386c5d5644239461ca
 RUN mkdir -p /out/lib && \
     cd /tmp && \
-    curl -fL --retry 5 --retry-delay 5 -o onnxruntime.tgz \
-        "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" && \
-    tar -xf onnxruntime.tgz && \
-    cp -v "onnxruntime-linux-x64-${ORT_VERSION}/lib/libonnxruntime.so.${ORT_VERSION}" /out/lib/ && \
+    curl -fL --retry 5 --retry-delay 5 -o onnxruntime.whl "${ORT_WHEEL_URL}" && \
+    echo "${ORT_WHEEL_SHA256}  onnxruntime.whl" | sha256sum -c - && \
+    unzip -j -o onnxruntime.whl "onnxruntime/capi/libonnxruntime.so.${ORT_VERSION}" -d /out/lib && \
     ln -sf "libonnxruntime.so.${ORT_VERSION}" /out/lib/libonnxruntime.so.1 && \
     ln -sf "libonnxruntime.so.${ORT_VERSION}" /out/lib/libonnxruntime.so && \
-    rm -rf onnxruntime.tgz "onnxruntime-linux-x64-${ORT_VERSION}"
+    rm -f onnxruntime.whl
 
 COPY . .
 # `load-dynamic` means ort-sys does no download at build time; just compile
